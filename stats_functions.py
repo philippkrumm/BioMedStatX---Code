@@ -987,53 +987,26 @@ class StatisticalTester:
         # Initialize test_recommendation with default value
         test_recommendation = "parametric"  # Default to parametric if all tests pass
 
-        # --- Normality of all values (residuals from one-way ANOVA model, if possible)
-        data = []
-        for group in valid_groups:
-            for value in samples[group]:
-                data.append({'Group': group, 'Value': value})
-        df = pd.DataFrame(data)
-        all_normal = False
-
-        try:
-            from statsmodels.formula.api import ols
-            model = ols('Value ~ C(Group)', data=df).fit()
-            residuals = model.resid
-            if len(residuals) >= 3 and len(set(residuals)) > 1:
-                stat, pval = stats.shapiro(residuals)
-                all_normal = pval > 0.05
-                test_info["normality_tests"]["all_data"] = {
-                    "statistic": stat, "p_value": pval, "is_normal": all_normal
-                }
-            else:
-                test_info["normality_tests"]["all_data"] = {"statistic": None, "p_value": None, "note": "Too few or identical residuals"}
-        except Exception as e:
-            all_values = [value for group in valid_groups for value in samples[group]]
-            if len(all_values) >= 3 and len(set(all_values)) > 1:
-                try:
-                    stat, pval = stats.shapiro(all_values)
-                    all_normal = pval > 0.05
-                    test_info["normality_tests"]["all_data"] = {
-                        "statistic": stat, "p_value": pval, "is_normal": all_normal
-                    }
-                except Exception as inner_e:
-                    test_info["normality_tests"]["all_data"] = {"statistic": None, "p_value": None, "error": str(inner_e)}
-            else:
-                test_info["normality_tests"]["all_data"] = {"statistic": None, "p_value": None, "note": "Too few or identical values"}
-
-        # --- Single group tests (for info only)
+        # --- Normality: Shapiro-Wilk-Test für jede Gruppe einzeln
+        test_info["normality_tests"] = {}
+        all_normal = True
         for group in valid_groups:
             values = samples[group]
             if len(values) >= 3 and len(set(values)) > 1:
                 try:
                     stat, pval = stats.shapiro(values)
+                    is_normal = pval > 0.05
                     test_info["normality_tests"][group] = {
-                        "statistic": stat, "p_value": pval, "is_normal": pval > 0.05
+                        "statistic": stat, "p_value": pval, "is_normal": is_normal
                     }
+                    if not is_normal:
+                        all_normal = False
                 except Exception as e:
                     test_info["normality_tests"][group] = {"statistic": None, "p_value": None, "error": str(e)}
+                    all_normal = False
             else:
                 test_info["normality_tests"][group] = {"statistic": None, "p_value": None, "note": "Too few values"}
+                all_normal = False
 
         # --- Levene test for homogeneity of variance
         data_for_levene = [samples[g] for g in valid_groups]
@@ -5263,28 +5236,6 @@ class ResultsExporter:
             ws.write(row, i, h, fmt["header"])
         row += 1
         normality_results = results.get("normality_tests", {})
-        # First show all_data (residuals) if available
-        if "all_data" in normality_results:
-            test_result = normality_results["all_data"]
-            stat = test_result.get('statistic', 'N/A')
-            p_val = test_result.get('p_value', 'N/A')
-            is_normal = (isinstance(p_val, (float, int)) and p_val > 0.05)
-            normal_text = "Yes" if is_normal else "No"
-            interpretation = (
-                "No significant deviation from normality"
-                if is_normal else
-                "Significant deviation from normality"
-            )
-            values = [
-                "Residuals (all_data)",
-                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
-                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
-                normal_text,
-                interpretation
-            ]
-            for col, val in enumerate(values):
-                ws.write(row, col, val, fmt["cell"])
-            row += 1
     
         for group, test_result in normality_results.items():
             if group == "all_data" or group == "transformed_data":
