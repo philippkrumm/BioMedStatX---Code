@@ -684,6 +684,16 @@ class PlotConfigDialog(QDialog):
         self.dependent_check = QCheckBox("Dependent samples (paired tests)")
         self.dependent_check.setObjectName("chkDependentSamples")
         dependent_layout.addWidget(self.dependent_check)
+
+        # --- Gruppenreihenfolge (Drag & Drop) ---
+        order_group = QGroupBox("Gruppenreihenfolge (Ziehen zum Sortieren)")
+        order_layout = QVBoxLayout(order_group)
+        self.order_list = QListWidget()
+        self.order_list.setDragDropMode(QListWidget.InternalMove)
+        for group in groups:
+            self.order_list.addItem(str(group))
+        order_layout.addWidget(self.order_list)
+        layout.addWidget(order_group)
         
         # Add an info button with tooltip
         dependent_info = QPushButton("?")
@@ -906,7 +916,8 @@ class PlotConfigDialog(QDialog):
                 'x_label': self.x_label_edit.text() if self.x_label_edit.text() else None,
                 'y_label': self.y_label_edit.text() if self.y_label_edit.text() else None,
                 'file_name': self.file_name_edit.text() if self.file_name_edit.text() else None,
-                'groups': self.groups,
+                'groups': [self.order_list.item(i).text() for i in range(self.order_list.count())],
+                'group_order': [self.order_list.item(i).text() for i in range(self.order_list.count())],
                 'width': self.width_spin.value(),
                 'height': self.height_spin.value(),
                 'colors': colors_dict,
@@ -926,7 +937,8 @@ class PlotConfigDialog(QDialog):
             traceback.print_exc()
             # Return a minimal config to prevent crashes
             return {
-                'groups': self.groups,
+                'groups': [self.order_list.item(i).text() for i in range(self.order_list.count())],
+                'group_order': [self.order_list.item(i).text() for i in range(self.order_list.count())],
                 'title': None,
                 'x_label': None,
                 'y_label': None,
@@ -1896,6 +1908,10 @@ class StatisticalAnalyzerApp(QMainWindow):
         config = self.plot_configs[index]
         
         dialog = PlotConfigDialog(config['groups'], self)
+        if 'group_order' in config:
+            dialog.order_list.clear()
+            for group in config['group_order']:
+                dialog.order_list.addItem(group)
         
         # Set all properties of the dialog
         dialog.set_title(config.get('title', ''))

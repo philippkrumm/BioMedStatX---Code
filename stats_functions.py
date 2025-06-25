@@ -4092,9 +4092,9 @@ class UIDialogManager:
 class DataVisualizer:
     @staticmethod
     def plot_bar(groups, samples, width=6, height=6, colors=None, hatches=None, compare=None, 
-                 test_recommendation="parametric", max_points_per_group=None, 
-                 x_label=None, y_label=None, title=None, save_plot=True, error_type="sd",
-                 pairwise_results=None, file_name=None):  # file_name parameter added
+                test_recommendation="parametric", max_points_per_group=None, 
+                x_label=None, y_label=None, title=None, save_plot=True, error_type="sd",
+                pairwise_results=None, file_name=None, group_order=None):
         """
         Creates a bar plot with individual data points, error bars, and statistical annotations.
 
@@ -4129,13 +4129,12 @@ class DataVisualizer:
         error_type : str, optional
             Type of error bars: 'sd' for standard deviation or 'se' for standard error
         """
-        groups_with_data = [g for g in groups if len(samples.get(g, [])) > 0]
-        if len(groups_with_data) < len(groups):
-            print("[plot_bar] Warning: The following groups will not be plotted because they contain no values:", 
-                  [g for g in groups if len(samples.get(g, [])) == 0])
-        if len(groups_with_data) == 0:
-            raise ValueError("No group contains values – plot cannot be created.")
-        groups = groups_with_data
+        if group_order is not None:
+            # Nur Gruppen, die auch Daten haben!
+            groups = [g for g in group_order if g in samples and len(samples[g]) > 0]
+        else:
+            groups_with_data = [g for g in groups if len(samples.get(g, [])) > 0]
+            groups = groups_with_data
         if colors is None:
             colors = ['#3357FF', '#FF5733', '#33FF57', '#F033FF', '#FF3366', '#33FFEC']
         if hatches is None:
@@ -4151,7 +4150,7 @@ class DataVisualizer:
                 data.append({'Group': group, 'Value': val, 'Color': colors[i % len(colors)]})
         df = pd.DataFrame(data)
         fig, ax = plt.subplots(figsize=(width, height))
-        bars = sns.barplot(x='Group', y='Value', data=df, ax=ax, errorbar=error_type, palette=colors, capsize=0.1)
+        bars = sns.barplot(x='Group', y='Value', data=df, ax=ax, errorbar=error_type, palette=colors, capsize=0.1, order=groups)
         sns.despine(ax=ax)
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
@@ -4291,10 +4290,10 @@ class DataVisualizer:
             # Use custom name or combine group names
             file_base = file_name if file_name else "_".join(map(str, groups))
             pdf_path = get_output_path(file_base, "pdf")
-            png_path = get_output_path(file_base, "png")
+            svg_path = get_output_path(file_base, "svg")
             fig.savefig(pdf_path, dpi=300, bbox_inches='tight')
-            fig.savefig(png_path, dpi=300, bbox_inches='tight')
-            print(f"Images were saved to:\n{pdf_path}\n{png_path}")
+            fig.savefig(svg_path, format="svg", bbox_inches='tight')
+            print(f"Images were saved to:\n{pdf_path}\n{svg_path}")
         return fig, ax
 
     @staticmethod
@@ -6747,9 +6746,10 @@ class AnalysisManager:
 
             # Log before transformation
             analysis_log += "\nResults of tests before transformation:\n"
-            if test_info["normality_tests"]["all_data"].get("p_value") is not None:
-                analysis_log += f"Shapiro-Wilk test (normality): p = {test_info['normality_tests']['all_data']['p_value']:.4f} - "
-                analysis_log += "Normally distributed\n" if test_info['normality_tests']['all_data'].get('is_normal', False) else "Not normally distributed\n"
+            all_data_normality = test_info["normality_tests"].get("all_data")
+            if all_data_normality and all_data_normality.get("p_value") is not None:
+                analysis_log += f"Shapiro-Wilk test (normality): p = {all_data_normality['p_value']:.4f} - "
+                analysis_log += "Normally distributed\n" if all_data_normality.get('is_normal', False) else "Not normally distributed\n"
             else:
                 analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
 
