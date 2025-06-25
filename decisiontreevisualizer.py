@@ -529,8 +529,6 @@ class DecisionTreeVisualizer:
                                 highlighted.add(('O1_PH', 'P1_PH_TK'))
                             elif "dunnett" in posthoc_test.lower() and "t3" not in posthoc_test.lower():
                                 highlighted.add(('O1_PH', 'P1_PH_DN'))
-                            elif "games" in posthoc_test.lower() or "howell" in posthoc_test.lower():
-                                highlighted.add(('O1_PH', 'P1_PH_GH'))
                             elif "holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower():
                                 highlighted.add(('O1_PH', 'P1_PH_SD'))
                         else:
@@ -686,13 +684,12 @@ class DecisionTreeVisualizer:
         try:
             import os
             import time
+            import tempfile
             
-            # Create a temp directory in user's Documents folder
-            user_temp_dir = os.path.join(os.path.expanduser("~"), "Documents", "StatisticsTemp")
-            os.makedirs(user_temp_dir, exist_ok=True)
-        
+            # Use system temp directory instead of Documents folder
+            temp_dir = tempfile.gettempdir()
             temp_filename = f"decision_tree_{int(time.time())}.png"
-            temp_path = os.path.join(user_temp_dir, temp_filename)
+            temp_path = os.path.join(temp_dir, temp_filename)
 
             print(f"DEBUG: Generating decision tree visualization to: {temp_path}")
 

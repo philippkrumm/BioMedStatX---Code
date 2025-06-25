@@ -4497,6 +4497,7 @@ class DataVisualizer:
         return fig, ax    
     
 class ResultsExporter:
+    _temp_files = set()
     @staticmethod
     def export_results_to_excel(results, output_file, analysis_log=None):
         import xlsxwriter
@@ -4515,6 +4516,9 @@ class ResultsExporter:
         
         print(f"DEBUG: Before Excel export - number of pairwise comparisons: {len(results_copy.get('pairwise_comparisons', []))}")
         
+        # Initialize dataset_tree_paths for single dataset export
+        dataset_tree_paths = {}
+        
         workbook = xlsxwriter.Workbook(output_file, {'nan_inf_to_errors': True})
         fmt = ResultsExporter._get_excel_formats(workbook)
 
@@ -4527,16 +4531,29 @@ class ResultsExporter:
         ResultsExporter._write_pairwise_sheet(workbook, results, fmt)
         if analysis_log:
             ResultsExporter._write_analysislog_sheet(workbook, analysis_log, fmt)
+            
         workbook.close()
-        # Clean up any temporary files
-        if hasattr(ResultsExporter, '_temp_files'):
-            for temp_file in ResultsExporter._temp_files:
+
+        # Clean up all temporary decision tree files
+        for dataset_name, tree_path in dataset_tree_paths.items():
+            if tree_path and os.path.exists(tree_path):
                 try:
-                    if os.path.exists(temp_file):
+                    os.remove(tree_path)
+                    print(f"DEBUG MULTI: Cleaned up decision tree file for {dataset_name}: {tree_path}")
+                except Exception as e:
+                    print(f"DEBUG MULTI: Could not clean up {tree_path}: {str(e)}")
+
+        # Clean up any other tracked temporary files
+        if ResultsExporter._temp_files:
+            print(f"DEBUG MULTI: Cleaning up {len(ResultsExporter._temp_files)} tracked temporary files")
+            for temp_file in ResultsExporter._temp_files:
+                if temp_file and os.path.exists(temp_file):
+                    try:
                         os.remove(temp_file)
-                except:
-                    pass  # Ignore cleanup errors
-            ResultsExporter._temp_files = []
+                        print(f"DEBUG MULTI: Removed tracked temp file: {temp_file}")
+                    except Exception as e:
+                        print(f"DEBUG MULTI: Failed to remove temp file: {str(e)}")
+            ResultsExporter._temp_files.clear()
 
     @staticmethod
     def export_multi_dataset_results(all_results, excel_path):
@@ -5960,9 +5977,6 @@ class ResultsExporter:
         
         # Write header
         sheet.write(0, 0, "Decision Tree Visualization", fmt["title"])
-        
-        # Use existing formats that have the properties we need
-        # Instead of fmt["bold"] and fmt["normal"] which don't exist
         sheet.write(1, 0, "Test Methodology: This decision tree shows the hypothesis workflow and statistical decisions.", fmt["explanation"])
         sheet.write(2, 0, "Highlighted path: The red path shows the decisions made for this specific analysis.", fmt["explanation"])
         
@@ -5971,7 +5985,10 @@ class ResultsExporter:
         if not image_path or not os.path.exists(image_path):
             print(f"DEBUG: No valid pre-generated tree, generating new one...")
             image_path = DecisionTreeVisualizer.generate_and_save_for_excel(results)
+            # Track the newly generated file
+            ResultsExporter.track_temp_file(image_path)
         
+        # Insert the image if it exists
         if image_path and os.path.exists(image_path):
             print(f"Inserting decision tree image: {image_path}")
             
@@ -5997,8 +6014,13 @@ class ResultsExporter:
                 print(f"DEBUG: Error processing image dimensions: {e}")
                 # Fallback: insert without scaling
                 sheet.insert_image(5, 0, image_path)
+            
+            # Add image filename for reference
+            sheet.write(3, 0, f"Image file: {os.path.basename(image_path)}", fmt["explanation"])
         else:
             sheet.write(5, 0, "Error: Failed to generate decision tree visualization.", fmt["explanation"])
+        
+        return image_path
     
     @staticmethod
     def _write_rawdata_sheet(workbook, results, fmt, sheet_name="Raw Data"):
@@ -6325,6 +6347,55 @@ class ResultsExporter:
         ResultsExporter.get_text_height._cache[cache_key] = result
     
         return result
+    
+    @staticmethod
+    def track_temp_file(filepath):
+        """Track a temporary file for later cleanup"""
+        if filepath and os.path.exists(filepath):
+            ResultsExporter._temp_files.add(filepath)
+            print(f"DEBUG: Tracking temporary file: {filepath}")
+        return filepath
+    
+    @staticmethod
+    def cleanup_old_tree_files(max_age_hours=24):
+        """Clean up old decision tree files."""
+        import glob
+        import time
+        import os
+        import tempfile
+        
+        # First check temp directory for pattern-matching files
+        temp_dir = tempfile.gettempdir()
+        current_time = time.time()
+        cleaned_count = 0
+        
+        # Find and delete old files
+        for pattern in ["decision_tree_*.png", "tree_visualization_*.png"]:
+            for file_path in glob.glob(os.path.join(temp_dir, pattern)):
+                try:
+                    file_age = current_time - os.path.getctime(file_path)
+                    if file_age > max_age_hours * 3600:
+                        os.remove(file_path)
+                        cleaned_count += 1
+                        print(f"Removed old decision tree: {file_path}")
+                except Exception as e:
+                    print(f"Error cleaning up file {file_path}: {str(e)}")
+        
+        # Also check legacy location (Documents/StatisticsTemp)
+        docs_dir = os.path.join(os.path.expanduser("~"), "Documents", "StatisticsTemp")
+        if os.path.exists(docs_dir):
+            for pattern in ["decision_tree_*.png", "tree_visualization_*.png"]:
+                for file_path in glob.glob(os.path.join(docs_dir, pattern)):
+                    try:
+                        file_age = current_time - os.path.getctime(file_path)
+                        if file_age > max_age_hours * 3600:
+                            os.remove(file_path)
+                            cleaned_count += 1
+                            print(f"Removed old decision tree from legacy location: {file_path}")
+                    except Exception as e:
+                        print(f"Error cleaning up legacy file {file_path}: {str(e)}")
+        
+        return cleaned_count
 
 class DatasetSelector:
     """Helper class to manage dataset selection in the UI"""
