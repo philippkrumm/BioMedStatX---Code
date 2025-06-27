@@ -68,11 +68,22 @@ class DecisionTreeVisualizer:
             print(f"DEBUG TREE: Final dependence_type='{dependence_type}' from test_name='{test_name}' and params")
 
             # Logic to determine test path - check transformed data first if available
-            is_normal = False
-            if "transformed_data" in normality_tests:
-                is_normal = normality_tests.get("transformed_data", {}).get("is_normal", False)
+            if isinstance(normality_tests, dict):
+                group_norm_results = [
+                    v.get("is_normal", v.get("p_value", None) is not None and v.get("p_value", 0) > 0.05)
+                    for k, v in normality_tests.items()
+                    if k not in ("all_data", "transformed_data")
+                ]
+                if group_norm_results:
+                    is_normal = all(group_norm_results)
+                else:
+                    # fallback to summary keys
+                    if "transformed_data" in normality_tests:
+                        is_normal = normality_tests.get("transformed_data", {}).get("is_normal", False)
+                    else:
+                        is_normal = normality_tests.get("all_data", {}).get("is_normal", False)
             else:
-                is_normal = normality_tests.get("all_data", {}).get("is_normal", False)
+                is_normal = False
 
             has_equal_variance = False
             if "transformed" in variance_test:
