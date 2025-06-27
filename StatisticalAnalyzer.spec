@@ -43,7 +43,7 @@ exe = EXE(
     pyz,
     a.scripts,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,  # <--- Das ist der entscheidende Fix!
     name='StatisticalAnalyzer',
     debug=False,
     bootloader_ignore_signals=False,
@@ -56,5 +56,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='Institutslogo.ico',
-    onefile=True  # <-- das aktiviert den Ein-Datei-Build!
+    onefile=True
 )
