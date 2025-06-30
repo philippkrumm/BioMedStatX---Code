@@ -4089,213 +4089,681 @@ class UIDialogManager:
         UIDialogManager.select_transformation_dialog._shown_dialogs[dialog_key] = None
         return None
     
-class DataVisualizer:
-    @staticmethod
-    def plot_bar(groups, samples, width=6, height=6, colors=None, hatches=None, compare=None, 
-                test_recommendation="parametric", max_points_per_group=None, 
-                x_label=None, y_label=None, title=None, save_plot=True, error_type="sd",
-                pairwise_results=None, file_name=None, group_order=None):
-        """
-        Creates a bar plot with individual data points, error bars, and statistical annotations.
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import pandas as pd
+from matplotlib.ticker import ScalarFormatter, FuncFormatter
+from matplotlib.patches import Rectangle
+import matplotlib.patches as mpatches
+from scipy import stats
 
-        Parameters:
-        ----------
-        groups : list
-            List of groups to plot.
-        samples : dict
-            Dictionary with group names as keys and measurement values as lists.
-        width : int, optional
-            Width of the figure in inches (default: 6)
-        height : int, optional
-            Height of the plot in inches (default: 6)
-        colors : list, optional
-            List of colors for the bars
-        hatches : list, optional
-            List of hatch patterns for the bars
-        compare : list of tuples or tuple, optional
-            List of tuples with group names for specific significance comparisons
-        test_recommendation : str, optional
-            Recommendation for statistical test ("parametric" or "non_parametric")
-        max_points_per_group : int, optional
-            Maximum number of points per group (for large datasets)
-        x_label : str, optional
-            X-axis label
-        y_label : str, optional
-            Y-axis label
-        title : str, optional
-            Title of the plot
-        save_plot : bool, optional
-            If True, the plot will be saved
-        error_type : str, optional
-            Type of error bars: 'sd' for standard deviation or 'se' for standard error
-        """
+class DataVisualizer:
+    """Advanced data visualization class with extensive customization options"""
+    
+    # Default themes/styles
+    THEMES = {
+        'default': {
+            'colors': ['#3357FF', '#FF5733', '#33FF57', '#F033FF', '#FF3366', '#33FFEC'],
+            'hatches': ['/', '\\', '|', '-', '+', 'x', 'o', '.'],
+            'style': 'whitegrid'
+        },
+        'nature': {
+            'colors': ['#2E8B57', '#CD853F', '#4682B4', '#DAA520', '#DC143C', '#9370DB'],
+            'hatches': ['...', '|||', '---', '+++', '\\\\\\', '///'],
+            'style': 'white'
+        },
+        'academic': {
+            'colors': ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'],
+            'hatches': [None] * 6,
+            'style': 'ticks'
+        },
+        'colorblind': {
+            'colors': ['#0173B2', '#DE8F05', '#029E73', '#CC78BC', '#CA9161', '#FBAFE4'],
+            'hatches': ['////', '\\\\\\\\', '||||', '----', '++++', 'xxxx'],
+            'style': 'whitegrid'
+        }
+    }
+    
+    @staticmethod
+    def plot_bar(groups, samples, 
+                 # Basic plot settings
+                 width=8, height=6, dpi=300,
+                 
+                 # Styling and theme
+                 theme='default', colors=None, hatches=None, 
+                 color_palette='husl', alpha=0.8,
+                 
+                 # Bar customization
+                 bar_width=0.8, bar_edge_color='black', bar_edge_width=0.5,
+                 capsize=0.05, error_type="sd", show_error_bars=True,
+                 
+                 # Data points
+                 show_points=True, point_style='jitter', max_points_per_group=None,
+                 point_size=40, point_alpha=0.8, point_edge_width=0.5,
+                 jitter_strength=0.3, strip_dodge=False,
+                 
+                 # Statistical annotations
+                 show_significance_letters=True, show_pairwise_comparisons=True,
+                 significance_height_offset=0.05, comparison_line_height=0.1,
+                 significance_font_size=12, comparison_font_size=14,
+                 
+                 # Axes and labels
+                 x_label=None, y_label=None, title=None,
+                 x_label_size=12, y_label_size=12, title_size=14,
+                 tick_label_size=10, rotate_x_labels=0,
+                 
+                 # Axis formatting
+                 y_axis_format='auto', y_limits=None, x_limits=None,
+                 grid_style='major', grid_alpha=0.3,
+                 
+                 # Legend
+                 show_legend=True, legend_position='upper right',
+                 legend_bbox=(1.15, 1), legend_fontsize=9,
+                 legend_title="Samples", legend_title_size=12,
+                 
+                 # Advanced styling
+                 spine_style='default', background_color='white',
+                 figure_face_color='white',
+                 
+                 # Output options
+                 save_plot=True, file_formats=['pdf', 'svg'], 
+                 file_name=None, group_order=None,
+                 
+                 # Statistical data
+                 compare=None, test_recommendation="parametric",
+                 pairwise_results=None,
+                 
+                 # Advanced customization
+                 custom_annotations=None, watermark=None,
+                 subplot_margins=None, tight_layout=True):
+       
+        # Apply theme
+        if theme in DataVisualizer.THEMES:
+            theme_config = DataVisualizer.THEMES[theme]
+            if colors is None:
+                colors = theme_config['colors']
+            if hatches is None:
+                hatches = theme_config['hatches']
+            sns.set_style(theme_config['style'])
+        
+        # Prepare data and groups
         if group_order is not None:
-            # Nur Gruppen, die auch Daten haben!
             groups = [g for g in group_order if g in samples and len(samples[g]) > 0]
         else:
-            groups_with_data = [g for g in groups if len(samples.get(g, [])) > 0]
-            groups = groups_with_data
+            groups = [g for g in groups if len(samples.get(g, [])) > 0]
+        
+        # Color and hatch preparation
         if colors is None:
-            colors = ['#3357FF', '#FF5733', '#33FF57', '#F033FF', '#FF3366', '#33FFEC']
-        if hatches is None:
-            hatches = ['/', '\\', '|', '-', '+', 'x', 'o', '.']
-        if len(colors) < len(groups):
-            colors = (colors * (len(groups) // len(colors) + 1))[:len(groups)]
-        if len(hatches) < len(groups):
-            hatches = (hatches * (len(groups) // len(hatches) + 1))[:len(groups)]
+            if color_palette:
+                colors = sns.color_palette(color_palette, len(groups))
+            else:
+                colors = DataVisualizer.THEMES['default']['colors']
+        
+        colors = DataVisualizer._extend_list(colors, len(groups))
+        hatches = DataVisualizer._extend_list(hatches or [''] * len(groups), len(groups))
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+        fig.patch.set_facecolor(figure_face_color)
+        ax.set_facecolor(background_color)
+        
+        # Prepare data for plotting
+        plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
+        df = pd.DataFrame(plot_data)
+        
+        # Create bar plot
+        if show_error_bars:
+            bars = sns.barplot(
+                x='Group', y='Value', data=df, ax=ax,
+                errorbar=error_type, palette=colors, 
+                capsize=capsize, alpha=alpha,
+                order=groups, width=bar_width,
+                edgecolor=bar_edge_color, linewidth=bar_edge_width
+            )
+        else:
+            bars = sns.barplot(
+                x='Group', y='Value', data=df, ax=ax,
+                errorbar=None, palette=colors,
+                order=groups, width=bar_width,
+                edgecolor=bar_edge_color, linewidth=bar_edge_width,
+                alpha=alpha
+            )
+        
+        # Apply hatches
+        if any(h for h in hatches):
+            for i, patch in enumerate(bars.patches):
+                if i < len(hatches) and hatches[i]:
+                    patch.set_hatch(hatches[i])
+        
+        # Add data points
+        if show_points:
+            DataVisualizer._add_data_points(
+                ax, groups, samples, point_style, point_size, 
+                point_alpha, jitter_strength, max_points_per_group,
+                point_edge_width, strip_dodge
+            )
+        
+        # Format axes
+        DataVisualizer._format_axes(
+            ax, y_axis_format, y_limits, x_limits, 
+            grid_style, grid_alpha, spine_style
+        )
+        
+        # Add labels and title
+        DataVisualizer._add_labels(
+            ax, x_label, y_label, title,
+            x_label_size, y_label_size, title_size,
+            tick_label_size, rotate_x_labels
+        )
+        
+        # Add statistical annotations
+        if show_significance_letters:
+            DataVisualizer._add_significance_letters(
+                ax, df, groups, samples, test_recommendation,
+                significance_height_offset, significance_font_size,
+                error_type
+            )
+        
+        if show_pairwise_comparisons and compare and pairwise_results:
+            DataVisualizer._add_pairwise_comparisons(
+                ax, groups, compare, pairwise_results, df,
+                comparison_line_height, comparison_font_size
+            )
+        
+        # Add legend
+        if show_legend and show_points:
+            DataVisualizer._add_legend(
+                ax, samples, groups, legend_position, legend_bbox,
+                legend_fontsize, legend_title, legend_title_size
+            )
+        
+        # Add custom annotations
+        if custom_annotations:
+            DataVisualizer._add_custom_annotations(ax, custom_annotations)
+        
+        # Add watermark
+        if watermark:
+            DataVisualizer._add_watermark(fig, watermark)
+        
+        # Adjust layout
+        if tight_layout:
+            if subplot_margins:
+                plt.subplots_adjust(**subplot_margins)
+            else:
+                fig.tight_layout()
+        
+        # Save plot
+        if save_plot:
+            DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
+        
+        return fig, ax
+    
+    @staticmethod
+    def plot_violin(
+        groups, samples,
+        width=8, height=6, dpi=300,
+        theme='default', colors=None, hatches=None, color_palette='husl', alpha=0.8,
+        violin_width=0.8, edge_color='black', edge_width=0.5,
+        show_points=True, point_style='jitter', max_points_per_group=None,
+        point_size=40, point_alpha=0.8, point_edge_width=0.5,
+        jitter_strength=0.3, strip_dodge=False,
+        show_significance_letters=True, significance_height_offset=0.05, significance_font_size=12,
+        x_label=None, y_label=None, title=None,
+        x_label_size=12, y_label_size=12, title_size=14,
+        tick_label_size=10, rotate_x_labels=0,
+        y_axis_format='auto', y_limits=None, x_limits=None,
+        grid_style='major', grid_alpha=0.3,
+        show_legend=True, legend_position='upper right',
+        legend_bbox=(1.15, 1), legend_fontsize=9,
+        legend_title="Samples", legend_title_size=12,
+        spine_style='default', background_color='white',
+        figure_face_color='white',
+        save_plot=True, file_formats=['pdf', 'svg'],
+        file_name=None, group_order=None,
+        test_recommendation="parametric",
+        custom_annotations=None, watermark=None,
+        subplot_margins=None, tight_layout=True
+    ):
+        """Creates a violin plot with extensive customization options."""
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import numpy as np
+
+        if theme in DataVisualizer.THEMES:
+            theme_config = DataVisualizer.THEMES[theme]
+            if colors is None:
+                colors = theme_config['colors']
+            if hatches is None:
+                hatches = theme_config['hatches']
+            sns.set_style(theme_config['style'])
+        if colors is None:
+            colors = sns.color_palette(color_palette, len(groups))
+        colors = DataVisualizer._extend_list(colors, len(groups))
+
+        if group_order is not None:
+            groups = [g for g in group_order if g in samples and len(samples[g]) > 0]
+        else:
+            groups = [g for g in groups if len(samples.get(g, [])) > 0]
+
+        plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
+        df = pd.DataFrame(plot_data)
+
+        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+        fig.patch.set_facecolor(figure_face_color)
+        ax.set_facecolor(background_color)
+
+        sns.violinplot(
+            x='Group', y='Value', data=df, ax=ax,
+            palette=colors, order=groups, width=violin_width,
+            linewidth=edge_width, edgecolor=edge_color, alpha=alpha
+        )
+
+        if show_points:
+            DataVisualizer._add_data_points(
+                ax, groups, samples, point_style, point_size,
+                point_alpha, jitter_strength, max_points_per_group,
+                point_edge_width, strip_dodge
+            )
+
+        DataVisualizer._format_axes(
+            ax, y_axis_format, y_limits, x_limits,
+            grid_style, grid_alpha, spine_style
+        )
+        DataVisualizer._add_labels(
+            ax, x_label, y_label, title,
+            x_label_size, y_label_size, title_size,
+            tick_label_size, rotate_x_labels
+        )
+        if show_significance_letters:
+            DataVisualizer._add_significance_letters(
+                ax, df, groups, samples, test_recommendation,
+                significance_height_offset, significance_font_size,
+                "sd"
+            )
+        if show_legend and show_points:
+            DataVisualizer._add_legend(
+                ax, samples, groups, legend_position, legend_bbox,
+                legend_fontsize, legend_title, legend_title_size
+            )
+        if custom_annotations:
+            DataVisualizer._add_custom_annotations(ax, custom_annotations)
+        if watermark:
+            DataVisualizer._add_watermark(fig, watermark)
+        if tight_layout:
+            if subplot_margins:
+                plt.subplots_adjust(**subplot_margins)
+            else:
+                fig.tight_layout()
+        if save_plot:
+            DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
+        return fig, ax
+
+    @staticmethod
+    def plot_box(
+        groups, samples,
+        width=8, height=6, dpi=300,
+        theme='default', colors=None, hatches=None, color_palette='husl', alpha=0.8,
+        box_width=0.8, edge_color='black', edge_width=0.5,
+        show_points=True, point_style='jitter', max_points_per_group=None,
+        point_size=40, point_alpha=0.8, point_edge_width=0.5,
+        jitter_strength=0.3, strip_dodge=False,
+        show_significance_letters=True, significance_height_offset=0.05, significance_font_size=12,
+        x_label=None, y_label=None, title=None,
+        x_label_size=12, y_label_size=12, title_size=14,
+        tick_label_size=10, rotate_x_labels=0,
+        y_axis_format='auto', y_limits=None, x_limits=None,
+        grid_style='major', grid_alpha=0.3,
+        show_legend=True, legend_position='upper right',
+        legend_bbox=(1.15, 1), legend_fontsize=9,
+        legend_title="Samples", legend_title_size=12,
+        spine_style='default', background_color='white',
+        figure_face_color='white',
+        save_plot=True, file_formats=['pdf', 'svg'],
+        file_name=None, group_order=None,
+        test_recommendation="parametric",
+        custom_annotations=None, watermark=None,
+        subplot_margins=None, tight_layout=True
+    ):
+        """Creates a box plot with extensive customization options."""
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import numpy as np
+
+        if theme in DataVisualizer.THEMES:
+            theme_config = DataVisualizer.THEMES[theme]
+            if colors is None:
+                colors = theme_config['colors']
+            if hatches is None:
+                hatches = theme_config['hatches']
+            sns.set_style(theme_config['style'])
+        if colors is None:
+            colors = sns.color_palette(color_palette, len(groups))
+        colors = DataVisualizer._extend_list(colors, len(groups))
+
+        if group_order is not None:
+            groups = [g for g in group_order if g in samples and len(samples[g]) > 0]
+        else:
+            groups = [g for g in groups if len(samples.get(g, [])) > 0]
+
+        plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
+        df = pd.DataFrame(plot_data)
+
+        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+        fig.patch.set_facecolor(figure_face_color)
+        ax.set_facecolor(background_color)
+
+        sns.boxplot(
+            x='Group', y='Value', data=df, ax=ax,
+            palette=colors, order=groups, width=box_width,
+            linewidth=edge_width, fliersize=0, boxprops=dict(alpha=alpha)
+        )
+
+        if show_points:
+            DataVisualizer._add_data_points(
+                ax, groups, samples, point_style, point_size,
+                point_alpha, jitter_strength, max_points_per_group,
+                point_edge_width, strip_dodge
+            )
+
+        DataVisualizer._format_axes(
+            ax, y_axis_format, y_limits, x_limits,
+            grid_style, grid_alpha, spine_style
+        )
+        DataVisualizer._add_labels(
+            ax, x_label, y_label, title,
+            x_label_size, y_label_size, title_size,
+            tick_label_size, rotate_x_labels
+        )
+        if show_significance_letters:
+            DataVisualizer._add_significance_letters(
+                ax, df, groups, samples, test_recommendation,
+                significance_height_offset, significance_font_size,
+                "sd"
+            )
+        if show_legend and show_points:
+            DataVisualizer._add_legend(
+                ax, samples, groups, legend_position, legend_bbox,
+                legend_fontsize, legend_title, legend_title_size
+            )
+        if custom_annotations:
+            DataVisualizer._add_custom_annotations(ax, custom_annotations)
+        if watermark:
+            DataVisualizer._add_watermark(fig, watermark)
+        if tight_layout:
+            if subplot_margins:
+                plt.subplots_adjust(**subplot_margins)
+            else:
+                fig.tight_layout()
+        if save_plot:
+            DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
+        return fig, ax
+
+    @staticmethod
+    def plot_raincloud(
+        groups, samples,
+        width=8, height=6, dpi=300,
+        theme='default', colors=None, hatches=None, color_palette='husl', alpha=0.8,
+        violin_width=0.8, box_width=0.2, edge_color='black', edge_width=0.5,
+        show_points=True, point_style='jitter', max_points_per_group=None,
+        point_size=40, point_alpha=0.8, point_edge_width=0.5,
+        jitter_strength=0.3, strip_dodge=False,
+        show_significance_letters=True, significance_height_offset=0.05, significance_font_size=12,
+        x_label=None, y_label=None, title=None,
+        x_label_size=12, y_label_size=12, title_size=14,
+        tick_label_size=10, rotate_x_labels=0,
+        y_axis_format='auto', y_limits=None, x_limits=None,
+        grid_style='major', grid_alpha=0.3,
+        show_legend=True, legend_position='upper right',
+        legend_bbox=(1.15, 1), legend_fontsize=9,
+        legend_title="Samples", legend_title_size=12,
+        spine_style='default', background_color='white',
+        figure_face_color='white',
+        save_plot=True, file_formats=['pdf', 'svg'],
+        file_name=None, group_order=None,
+        test_recommendation="parametric",
+        custom_annotations=None, watermark=None,
+        subplot_margins=None, tight_layout=True
+    ):
+        """Creates a raincloud plot (violin + box + points)."""
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        import pandas as pd
+        import numpy as np
+
+        if theme in DataVisualizer.THEMES:
+            theme_config = DataVisualizer.THEMES[theme]
+            if colors is None:
+                colors = theme_config['colors']
+            if hatches is None:
+                hatches = theme_config['hatches']
+            sns.set_style(theme_config['style'])
+        if colors is None:
+            colors = sns.color_palette(color_palette, len(groups))
+        colors = DataVisualizer._extend_list(colors, len(groups))
+
+        if group_order is not None:
+            groups = [g for g in group_order if g in samples and len(samples[g]) > 0]
+        else:
+            groups = [g for g in groups if len(samples.get(g, [])) > 0]
+
+        plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
+        df = pd.DataFrame(plot_data)
+
+        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+        fig.patch.set_facecolor(figure_face_color)
+        ax.set_facecolor(background_color)
+
+        # Violin (half)
+        for i, group in enumerate(groups):
+            vals = samples[group]
+            color = colors[i % len(colors)]
+            sns.violinplot(
+                x=[group]*len(vals), y=vals, ax=ax, palette=[color],
+                width=violin_width, linewidth=edge_width, cut=0, bw=0.2,
+                inner=None, order=[group], alpha=alpha
+            )
+            # Overlay boxplot (narrow)
+            sns.boxplot(
+                x=[group]*len(vals), y=vals, ax=ax, palette=[color],
+                width=box_width, linewidth=edge_width, fliersize=0,
+                order=[group], boxprops=dict(alpha=0.7)
+            )
+
+        if show_points:
+            DataVisualizer._add_data_points(
+                ax, groups, samples, point_style, point_size,
+                point_alpha, jitter_strength, max_points_per_group,
+                point_edge_width, strip_dodge
+            )
+
+        DataVisualizer._format_axes(
+            ax, y_axis_format, y_limits, x_limits,
+            grid_style, grid_alpha, spine_style
+        )
+        DataVisualizer._add_labels(
+            ax, x_label, y_label, title,
+            x_label_size, y_label_size, title_size,
+            tick_label_size, rotate_x_labels
+        )
+        if show_significance_letters:
+            DataVisualizer._add_significance_letters(
+                ax, df, groups, samples, test_recommendation,
+                significance_height_offset, significance_font_size,
+                "sd"
+            )
+        if show_legend and show_points:
+            DataVisualizer._add_legend(
+                ax, samples, groups, legend_position, legend_bbox,
+                legend_fontsize, legend_title, legend_title_size
+            )
+        if custom_annotations:
+            DataVisualizer._add_custom_annotations(ax, custom_annotations)
+        if watermark:
+            DataVisualizer._add_watermark(fig, watermark)
+        if tight_layout:
+            if subplot_margins:
+                plt.subplots_adjust(**subplot_margins)
+            else:
+                fig.tight_layout()
+        if save_plot:
+            DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
+        return fig, ax
+    
+    # Helper methods
+    @staticmethod
+    def _extend_list(lst, target_length):
+        """Extend a list to target length by repeating elements"""
+        if not lst:
+            return [''] * target_length
+        return (lst * (target_length // len(lst) + 1))[:target_length]
+    
+    @staticmethod
+    def _prepare_plot_data(groups, samples, colors):
+        """Prepare data for plotting"""
         data = []
         for i, group in enumerate(groups):
             values = samples.get(group, [])
             for val in values:
-                data.append({'Group': group, 'Value': val, 'Color': colors[i % len(colors)]})
-        df = pd.DataFrame(data)
-        fig, ax = plt.subplots(figsize=(width, height))
-        bars = sns.barplot(x='Group', y='Value', data=df, ax=ax, errorbar=error_type, palette=colors, capsize=0.1, order=groups)
-        sns.despine(ax=ax)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-
-        y_formatter = ScalarFormatter(useOffset=False, useMathText=True)
-        y_formatter.set_scientific(True)
-        y_formatter.set_powerlimits((0, 0))  # always scientific
-        ax.yaxis.set_major_formatter(y_formatter)
-
-        # Apply hatches to bars
-        for i, patch in enumerate(bars.patches):
-            group_idx = i % len(groups)
-            patch.set_hatch(hatches[group_idx])
-
-        # Jitter dots
+                data.append({
+                    'Group': group, 
+                    'Value': val, 
+                    'Color': colors[i % len(colors)]
+                })
+        return data
+    
+    @staticmethod
+    def _add_data_points(ax, groups, samples, style, size, alpha, 
+                        jitter_strength, max_points, edge_width, dodge):
+        """Add individual data points to the plot"""
         markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', '+', 'x']
+        
         for i, group in enumerate(groups):
             values = samples.get(group, [])
-            if max_points_per_group is not None and len(values) > max_points_per_group:
-                values = np.random.choice(values, size=max_points_per_group, replace=False)
+            if max_points and len(values) > max_points:
+                values = np.random.choice(values, size=max_points, replace=False)
+            
             x_pos = i
-            bar_width = bars.patches[i].get_width() * 0.8 if bars.patches else 0.8
-            if len(values) > 1:
-                jitter = np.linspace(-bar_width/2, bar_width/2, len(values))
-            else:
-                jitter = [0]
-            jitter += np.random.normal(0, 0.01, size=len(values))
-            for j, (val, jit) in enumerate(zip(values, jitter)):
-                marker_idx = j % len(markers)
-                ax.scatter(x_pos + jit, val, color='black', 
-                           marker=markers[marker_idx], s=40, zorder=3, alpha=0.8)
-
-        # Legend
-        max_samples = max([len(samples[group]) for group in groups])
-        num_markers_to_show = min(max_samples, len(markers))
-        legend_elements = [plt.Line2D([0], [0], marker=markers[i], color='black', label=f'Sample {i + 1}',
-                                      markerfacecolor='black', markersize=8, linestyle='none') 
-                           for i in range(num_markers_to_show)]
-        ax.legend(handles=legend_elements, 
-                  title="Samples", 
-                  loc='upper right',
-                  fontsize=9, 
-                  title_fontsize=12,
-                  bbox_to_anchor=(1.15, 1))
-
-        # Add significance letters
-        try:
-            # Calculate significance letters
-            letters = DataVisualizer.get_significance_letters(samples, groups, test_recommendation=test_recommendation)
-
-            # Determine maximum y-value for the position of the letters
-            y_max = df['Value'].max()
-            y_offset = 0.05 * y_max  # 5% above the highest value
-
-            # Calculate maximum height per bar (with error bars)
-            bar_heights = []
-            for i, group in enumerate(groups):
-                values = samples[group]
-                mean_val = np.mean(values)
-                if error_type == 'sd':
-                    error = np.std(values, ddof=1)
-                else:  # 'se'
-                    error = np.std(values, ddof=1) / np.sqrt(len(values))
-                bar_heights.append(mean_val + error)
-
-            # Place letters above each bar
-            for i, group in enumerate(groups):
-                letter = letters[group]
-                ax.text(i, bar_heights[i] + y_offset, letter, 
-                       horizontalalignment='center', color='black', fontweight='bold')
-        except Exception as e:
-            print(f"Error adding significance letters: {str(e)}")
-
-        # Specific significance comparisons
-        if compare:
-            try:
-                # Standardize the compare format
-                compare_pairs = []
-                if isinstance(compare, tuple) and len(compare) == 2:
-                    compare_pairs = [compare]
-                elif isinstance(compare, list):
-                    compare_pairs = compare
-
-                # Determine the maximum y-value for the position of the comparison lines
-                y_max = max(bar_heights) if bar_heights else df['Value'].max()
-
-                # Draw lines and stars for each comparison
-                for i, (group1, group2) in enumerate(compare_pairs):
-                    if group1 in groups and group2 in groups:
-                        idx1 = groups.index(group1)
-                        idx2 = groups.index(group2)
-
-                        # Search in pairwise_results for the matching comparison
-                        p_val = None
-
-                        if pairwise_results:
-                            for comp in pairwise_results:
-                                # Check both possible orders of the groups
-                                if (comp['group1'] == group1 and comp['group2'] == group2) or \
-                                   (comp['group1'] == group2 and comp['group2'] == group1):
-                                    p_val = comp['p_value']
-                                    break
-
-                        # If no result found, do not draw a line
-                        if p_val is None:
-                            continue
-
-                        # Determine significance stars
-                        stars = DataVisualizer.get_stars(p_val)
-
-                        if stars:  # Only show if significant
-                            # Y-position for the line (with spacing for multiple comparisons)
-                            line_height = y_max * (1.2 + i * 0.1)
-
-                            # Horizontal line
-                            ax.plot([idx1, idx2], [line_height, line_height], 'k-', linewidth=1.5)
-
-                            # Vertical lines
-                            ax.plot([idx1, idx1], [line_height - y_max * 0.03, line_height], 'k-', linewidth=1.5)
-                            ax.plot([idx2, idx2], [line_height - y_max * 0.03, line_height], 'k-', linewidth=1.5)
-
-                            # Stars above the line
-                            ax.text((idx1 + idx2) / 2, line_height + y_max * 0.02, stars, 
-                                   horizontalalignment='center', fontsize=14, fontweight='bold')
-            except Exception as e:
-                print(f"Error adding significance comparisons: {str(e)}")
-
-        # Axis labels and title      
+            
+            if style == 'jitter':
+                # Custom jitter implementation
+                if len(values) > 1:
+                    jitter = np.random.uniform(-jitter_strength/2, jitter_strength/2, len(values))
+                else:
+                    jitter = [0]
+                
+                for j, (val, jit) in enumerate(zip(values, jitter)):
+                    marker_idx = j % len(markers)
+                    ax.scatter(x_pos + jit, val, color='black', 
+                             marker=markers[marker_idx], s=size, 
+                             zorder=3, alpha=alpha, edgecolors='white',
+                             linewidth=edge_width)
+            
+            elif style == 'strip':
+                # Use seaborn stripplot
+                df_group = pd.DataFrame({'x': [i] * len(values), 'y': values})
+                sns.stripplot(data=df_group, x='x', y='y', ax=ax, 
+                            size=size/10, alpha=alpha, color='black',
+                            jitter=jitter_strength, dodge=dodge)
+            
+            elif style == 'swarm':
+                # Use seaborn swarmplot
+                df_group = pd.DataFrame({'x': [group] * len(values), 'y': values})
+                sns.swarmplot(data=df_group, x='x', y='y', ax=ax,
+                            size=size/10, alpha=alpha, color='black')
+    
+    @staticmethod
+    def _format_axes(ax, y_format, y_limits, x_limits, grid_style, grid_alpha, spine_style):
+        """Format axes according to specifications"""
+        # Y-axis formatting
+        if y_format == 'scientific':
+            formatter = ScalarFormatter(useOffset=False, useMathText=True)
+            formatter.set_scientific(True)
+            formatter.set_powerlimits((0, 0))
+            ax.yaxis.set_major_formatter(formatter)
+        elif y_format == 'percentage':
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.1%}'))
+        elif y_format == 'decimal':
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
+        
+        # Set limits
+        if y_limits:
+            ax.set_ylim(y_limits)
+        if x_limits:
+            ax.set_xlim(x_limits)
+        
+        # Grid
+        if grid_style != 'none':
+            ax.grid(True, which=grid_style, alpha=grid_alpha, linestyle='-', linewidth=0.5)
+        
+        # Spine styling
+        if spine_style == 'minimal':
+            sns.despine(ax=ax, top=True, right=True)
+        elif spine_style == 'none':
+            sns.despine(ax=ax, top=True, right=True, left=True, bottom=True)
+        elif spine_style == 'box':
+            # Keep all spines
+            pass
+    
+    @staticmethod
+    def _add_labels(ax, x_label, y_label, title, x_size, y_size, title_size, tick_size, rotation):
+        """Add and format labels"""
         if x_label:
-            ax.set_xlabel(x_label, fontsize=12)
+            ax.set_xlabel(x_label, fontsize=x_size, fontweight='bold')
         if y_label:
-            ax.set_ylabel(y_label, fontsize=12)
+            ax.set_ylabel(y_label, fontsize=y_size, fontweight='bold')
         if title:
-            ax.set_title(title, fontsize=14)
-        fig.tight_layout()
-        if save_plot:
-            # Use custom name or combine group names
-            file_base = file_name if file_name else "_".join(map(str, groups))
-            pdf_path = get_output_path(file_base, "pdf")
-            svg_path = get_output_path(file_base, "svg")
-            fig.savefig(pdf_path, dpi=300, bbox_inches='tight')
-            fig.savefig(svg_path, format="svg", bbox_inches='tight')
-            print(f"Images were saved to:\n{pdf_path}\n{svg_path}")
-        return fig, ax
-
+            ax.set_title(title, fontsize=title_size, fontweight='bold', pad=20)
+        
+        ax.tick_params(axis='both', which='major', labelsize=tick_size)
+        
+        if rotation != 0:
+            plt.setp(ax.get_xticklabels(), rotation=rotation, ha='right')
+    
+    @staticmethod
+    def _add_custom_annotations(ax, annotations):
+        """Add custom text annotations"""
+        for annotation in annotations:
+            ax.annotate(
+                annotation.get('text', ''),
+                xy=annotation.get('xy', (0, 0)),
+                xytext=annotation.get('xytext', (0, 0)),
+                fontsize=annotation.get('fontsize', 10),
+                color=annotation.get('color', 'black'),
+                ha=annotation.get('ha', 'center'),
+                va=annotation.get('va', 'center'),
+                arrowprops=annotation.get('arrowprops', None)
+            )
+    
+    @staticmethod
+    def _add_watermark(fig, watermark_text):
+        """Add watermark to the figure"""
+        fig.text(0.95, 0.05, watermark_text, 
+                fontsize=8, color='gray', alpha=0.5,
+                ha='right', va='bottom', rotation=0)
+    
+    @staticmethod
+    def _save_plot(fig, file_name, groups, formats, dpi):
+        """Save plot in multiple formats"""
+        if file_name is None:
+            file_name = "_".join(map(str, groups))
+        
+        for fmt in formats:
+            if fmt == 'pdf':
+                pdf_path = get_output_path(file_name, "pdf")
+                fig.savefig(pdf_path, dpi=dpi, bbox_inches='tight', format='pdf')
+            elif fmt == 'svg':
+                svg_path = get_output_path(file_name, "svg")
+                fig.savefig(svg_path, bbox_inches='tight', format='svg')
+            elif fmt == 'png':
+                png_path = get_output_path(file_name, "png")
+                fig.savefig(png_path, dpi=dpi, bbox_inches='tight', format='png')
+            elif fmt == 'eps':
+                eps_path = get_output_path(file_name, "eps")
+                fig.savefig(eps_path, dpi=dpi, bbox_inches='tight', format='eps')
+    
     @staticmethod
     def get_significance_letters(samples, groups, test_recommendation="parametric", alpha=0.05):
         """
@@ -4366,107 +4834,46 @@ class DataVisualizer:
                     letters[group1] = available_letters[current_letter_idx]
 
         return letters
-
+    
     @staticmethod
-    def get_stars(p_val):
-        """Return significance stars based on p-value"""
-        if p_val < 0.001:
-            return "***"
-        elif p_val < 0.01:
-            return "**"
-        elif p_val < 0.05:
-            return "*"
-        else:
-            return ""
-
-    @staticmethod
-    def plot_dependent_samples(groups, samples, width=8, height=6, colors=None, 
-                            title=None, x_label=None, y_label=None, save_plot=True,
-                            file_name=None, show_individual=True):
-        """
-        Creates a plot for dependent samples with lines for individual changes.
-        
-        Parameters:
-        -----------
-        groups : list
-            List of groups (measurement time points)
-        samples : dict
-            Dictionary with group names as keys and lists of measurement values as values
-        width, height : int
-            Size of the plot
-        colors : list
-            Colors for the groups
-        title, x_label, y_label : str
-            Labels
-        save_plot : bool
-            Whether the plot should be saved
-        file_name : str
-            Name of the output file
-        show_individual : bool
-            Whether to show individual changes
-        """
-        import matplotlib.pyplot as plt
-        import numpy as np
-        import pandas as pd
-        import seaborn as sns
-        
-        # Check if all groups have the same number of measurements
-        sample_sizes = [len(samples[g]) for g in groups if g in samples]
-        if len(set(sample_sizes)) > 1:
-            print("Warning: Unequal sample sizes. Plot may be distorted.")
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=(width, height))
-        
-        # Set colors
-        if colors is None:
-            colors = sns.color_palette("tab10", len(groups))
-        
-        # Prepare data for the plot
-        x_positions = list(range(len(groups)))
-        
-        # Calculate means and standard errors
-        means = [np.mean(samples[g]) for g in groups]
-        sems = [np.std(samples[g], ddof=1) / np.sqrt(len(samples[g])) for g in groups]
-        
-        # Draw means with error bars
-        ax.errorbar(x_positions, means, yerr=sems, fmt='o-', linewidth=2, 
-                    elinewidth=1.5, capsize=5, markersize=8, color='black', label='Mean')
-        
-        # Draw individual lines if desired
-        if show_individual:
-            min_samples = min(sample_sizes)
-            for i in range(min_samples):
-                individual_values = [samples[g][i] for g in groups if i < len(samples[g])]
-                if len(individual_values) == len(groups):  # Only complete datasets
-                    ax.plot(x_positions, individual_values, 'o-', alpha=0.3, 
-                            markersize=4, linewidth=0.8)
-        
-        # Labels
-        ax.set_xticks(x_positions)
-        ax.set_xticklabels(groups)
-        if x_label:
-            ax.set_xlabel(x_label, fontsize=12)
-        if y_label:
-            ax.set_ylabel(y_label, fontsize=12)
-        if title:
-            ax.set_title(title, fontsize=14)
-        
-        # Design adjustments
-        sns.despine(ax=ax)
-        ax.grid(axis='y', linestyle='--', alpha=0.7)
-        
-        # Save if desired
-        if save_plot:
-            # Use custom name or combine group names
-            file_base = file_name if file_name else "_".join(map(str, groups)) + "_dependent"
-            pdf_path = get_output_path(file_base, "pdf")
-            png_path = get_output_path(file_base, "png")
-            fig.savefig(pdf_path, dpi=300, bbox_inches='tight')
-            fig.savefig(png_path, dpi=300, bbox_inches='tight')
-            print(f"Images were saved to:\n{pdf_path}\n{png_path}")
-        
-        return fig, ax    
+    def _add_significance_letters(ax, df, groups, samples, test_recommendation, 
+                                height_offset, font_size, error_type):
+        """Add significance letters with enhanced formatting"""
+        try:
+            letters = DataVisualizer.get_significance_letters(
+                samples, groups, test_recommendation=test_recommendation
+            )
+            
+            y_max = df['Value'].max()
+            y_offset = height_offset * y_max
+            
+            # Calculate bar heights with error bars
+            bar_heights = []
+            for group in groups:
+                values = samples[group]
+                mean_val = np.mean(values)
+                if error_type == 'sd':
+                    error = np.std(values, ddof=1)
+                elif error_type == 'se':
+                    error = np.std(values, ddof=1) / np.sqrt(len(values))
+                else:  # ci
+                    error = 1.96 * np.std(values, ddof=1) / np.sqrt(len(values))
+                bar_heights.append(mean_val + error)
+            
+            # Place letters with enhanced styling
+            for i, group in enumerate(groups):
+                letter = letters[group]
+                ax.text(i, bar_heights[i] + y_offset, letter,
+                       horizontalalignment='center', 
+                       verticalalignment='bottom',
+                       color='black', fontweight='bold',
+                       fontsize=font_size,
+                       bbox=dict(boxstyle="round,pad=0.3", 
+                                facecolor="white", 
+                                edgecolor="gray",
+                                alpha=0.8))
+        except Exception as e:
+            print(f"Error adding significance letters: {str(e)}")    
     
 class ResultsExporter:
     _temp_files = set()
