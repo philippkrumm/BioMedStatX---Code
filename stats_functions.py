@@ -4156,7 +4156,7 @@ class DataVisualizer:
                  
                  # Data points
                  show_points=True, point_style='jitter', max_points_per_group=None,
-                 point_size=40, point_alpha=0.8, point_edge_width=0.5,
+                 point_size=80, point_alpha=0.8, point_edge_width=0.5,
                  jitter_strength=0.3, strip_dodge=False,
                  
                  # Statistical annotations
@@ -4171,7 +4171,7 @@ class DataVisualizer:
                  
                  # Axis formatting
                  y_axis_format='auto', y_limits=None, x_limits=None,
-                 grid_style='major', grid_alpha=0.3,
+                 grid_style='none', grid_alpha=0.3,
                  
                  # Legend
                  show_legend=True, legend_position='upper right',
@@ -4179,7 +4179,7 @@ class DataVisualizer:
                  legend_title="Samples", legend_title_size=12,
                  
                  # Advanced styling
-                 spine_style='default', background_color='white',
+                 spine_style='minimal', background_color='white',
                  figure_face_color='white',
                  
                   # Output options
@@ -4194,7 +4194,10 @@ class DataVisualizer:
                  
                  # Advanced customization
                  custom_annotations=None, watermark=None,
-                 subplot_margins=None, tight_layout=True):
+                 subplot_margins=None, tight_layout=True,
+                 
+                 # Legend colors
+                 legend_colors=None):
       
         # Apply theme
         if theme in DataVisualizer.THEMES:
@@ -4299,9 +4302,28 @@ class DataVisualizer:
         
         # Add legend
         if show_legend and show_points:
-            DataVisualizer._add_legend(
-                ax, samples, groups, legend_position, legend_bbox,
-                legend_fontsize, legend_title, legend_title_size
+            if legend_colors is not None:
+                # Use the provided legend colors
+                colors_to_use = legend_colors
+            else:
+                # Use the colors from the plot
+                colors_to_use = colors
+                
+            # Create patches for the legend with the correct colors
+            legend_patches = []
+            for i, group in enumerate(groups):
+                color = colors_to_use.get(group, colors[i % len(colors)]) if isinstance(colors_to_use, dict) else colors[i % len(colors)]
+                patch = mpatches.Patch(color=color, label=str(group), alpha=alpha)
+                legend_patches.append(patch)
+                
+            ax.legend(
+                handles=legend_patches,
+                loc=legend_position,
+                bbox_to_anchor=legend_bbox,
+                fontsize=legend_fontsize,
+                title=legend_title,
+                title_fontsize=legend_title_size,
+                frameon=False
             )
         
         # Add custom annotations
@@ -4332,30 +4354,26 @@ class DataVisualizer:
         theme='default', colors=None, hatches=None, color_palette='husl', alpha=0.8,
         violin_width=0.8, edge_color='black', edge_width=0.5,
         show_points=True, point_style='jitter', max_points_per_group=None,
-        point_size=40, point_alpha=0.8, point_edge_width=0.5,
+        point_size=80, point_alpha=0.8, point_edge_width=0.5,
         jitter_strength=0.3, strip_dodge=False,
         show_significance_letters=True, significance_height_offset=0.05, significance_font_size=12,
         x_label=None, y_label=None, title=None,
         x_label_size=12, y_label_size=12, title_size=14,
         tick_label_size=10, rotate_x_labels=0,
         y_axis_format='auto', y_limits=None, x_limits=None,
-        grid_style='major', grid_alpha=0.3,
+        grid_style='none', grid_alpha=0.3,
         show_legend=True, legend_position='upper right',
         legend_bbox=(1.15, 1), legend_fontsize=9,
         legend_title="Samples", legend_title_size=12,
-        spine_style='default', background_color='white',
+        spine_style='minimal', background_color='white',
         figure_face_color='white',
         save_plot=True, file_formats=['pdf', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
         custom_annotations=None, watermark=None,
-        subplot_margins=None, tight_layout=True
+        subplot_margins=None, tight_layout=True,
+        legend_colors=None
     ):
-        """Creates a violin plot with extensive customization options."""
-        import seaborn as sns
-        import matplotlib.pyplot as plt
-        import pandas as pd
-        import numpy as np
 
         if theme in DataVisualizer.THEMES:
             theme_config = DataVisualizer.THEMES[theme]
@@ -4409,9 +4427,28 @@ class DataVisualizer:
                 "sd"
             )
         if show_legend and show_points:
-            DataVisualizer._add_legend(
-                ax, samples, groups, legend_position, legend_bbox,
-                legend_fontsize, legend_title, legend_title_size
+            if legend_colors is not None:
+                # Use the provided legend colors
+                colors_to_use = legend_colors
+            else:
+                # Use the colors from the plot
+                colors_to_use = colors
+                
+            # Create patches for the legend with the correct colors
+            legend_patches = []
+            for i, group in enumerate(groups):
+                color = colors_to_use.get(group, colors[i % len(colors)]) if isinstance(colors_to_use, dict) else colors[i % len(colors)]
+                patch = mpatches.Patch(color=color, label=str(group), alpha=alpha)
+                legend_patches.append(patch)
+                
+            ax.legend(
+                handles=legend_patches,
+                loc=legend_position,
+                bbox_to_anchor=legend_bbox,
+                fontsize=legend_fontsize,
+                title=legend_title,
+                title_fontsize=legend_title_size,
+                frameon=False
             )
         if custom_annotations:
             DataVisualizer._add_custom_annotations(ax, custom_annotations)
@@ -4433,7 +4470,7 @@ class DataVisualizer:
         theme='default', colors=None, hatches=None, color_palette='husl', alpha=0.8,
         box_width=0.8, edge_color='black', edge_width=0.5,
         show_points=True, point_style='jitter', max_points_per_group=None,
-        point_size=40, point_alpha=0.8, point_edge_width=0.5,
+        point_size=80, point_alpha=0.8, point_edge_width=0.5,
         jitter_strength=0.3, strip_dodge=False,
         show_error_bars=True, error_type="sd", capsize=0.05,
         show_significance_letters=True, significance_height_offset=0.05, significance_font_size=12,
@@ -4441,17 +4478,18 @@ class DataVisualizer:
         x_label_size=12, y_label_size=12, title_size=14,
         tick_label_size=10, rotate_x_labels=0,
         y_axis_format='auto', y_limits=None, x_limits=None,
-        grid_style='major', grid_alpha=0.3,
+        grid_style='none', grid_alpha=0.3,
         show_legend=True, legend_position='upper right',
         legend_bbox=(1.15, 1), legend_fontsize=9,
         legend_title="Samples", legend_title_size=12,
-        spine_style='default', background_color='white',
+        spine_style='minimal', background_color='white',
         figure_face_color='white', error_style="caps", 
         save_plot=True, file_formats=['pdf', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
         custom_annotations=None, watermark=None,
-        subplot_margins=None, tight_layout=True
+        subplot_margins=None, tight_layout=True,
+        legend_colors=None
     ):
 
         import seaborn as sns
@@ -4525,9 +4563,28 @@ class DataVisualizer:
                 "sd"
             )
         if show_legend and show_points:
-            DataVisualizer._add_legend(
-                ax, samples, groups, legend_position, legend_bbox,
-                legend_fontsize, legend_title, legend_title_size
+            if legend_colors is not None:
+                # Use the provided legend colors
+                colors_to_use = legend_colors
+            else:
+                # Use the colors from the plot
+                colors_to_use = colors
+                
+            # Create patches for the legend with the correct colors
+            legend_patches = []
+            for i, group in enumerate(groups):
+                color = colors_to_use.get(group, colors[i % len(colors)]) if isinstance(colors_to_use, dict) else colors[i % len(colors)]
+                patch = mpatches.Patch(color=color, label=str(group), alpha=alpha)
+                legend_patches.append(patch)
+                
+            ax.legend(
+                handles=legend_patches,
+                loc=legend_position,
+                bbox_to_anchor=legend_bbox,
+                fontsize=legend_fontsize,
+                title=legend_title,
+                title_fontsize=legend_title_size,
+                frameon=False
             )
         if custom_annotations:
             DataVisualizer._add_custom_annotations(ax, custom_annotations)
@@ -4549,31 +4606,48 @@ class DataVisualizer:
         theme='default', colors=None, hatches=None, color_palette='husl', alpha=0.8,
         violin_width=0.8, box_width=0.2, edge_color='black', edge_width=0.5,
         show_points=True, point_style='jitter', max_points_per_group=None,
-        point_size=40, point_alpha=0.8, point_edge_width=0.5,
+        point_size=80, point_alpha=0.8, point_edge_width=0.5,
         jitter_strength=0.3, strip_dodge=False,
         show_significance_letters=True, significance_height_offset=0.05, significance_font_size=12,
         x_label=None, y_label=None, title=None,
         x_label_size=12, y_label_size=12, title_size=14,
         tick_label_size=10, rotate_x_labels=0,
         y_axis_format='auto', y_limits=None, x_limits=None,
-        grid_style='major', grid_alpha=0.3,
+        grid_style='none', grid_alpha=0.3,
         show_legend=True, legend_position='upper right',
         legend_bbox=(1.15, 1), legend_fontsize=9,
         legend_title="Samples", legend_title_size=12,
-        spine_style='default', background_color='white',
+        spine_style='minimal', background_color='white',
         figure_face_color='white',
-        save_plot=True, file_formats=['pdf', 'svg'],
+        save_plot=True, file_formats=['pdf', 'svg', 'png'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
         custom_annotations=None, watermark=None,
-        subplot_margins=None, tight_layout=True
+        subplot_margins=None, tight_layout=True,
+        # Appearance options
+        font_main=None, font_axis=None, fontsize_title=None, fontsize_axis=None,
+        fontsize_ticks=None, fontsize_groupnames=None, legend_colors=None
     ):
-        """Creates a raincloud plot (violin + box + points)."""
+        """Creates a raincloud plot (violin + box + points) with half violins above boxplots and data points below."""
         import seaborn as sns
         import matplotlib.pyplot as plt
         import pandas as pd
         import numpy as np
+        import matplotlib.patches as mpatches
+        import scipy.stats as stats
 
+        # Apply font settings if provided
+        if fontsize_title is not None:
+            title_size = fontsize_title
+        if fontsize_axis is not None:
+            x_label_size = fontsize_axis
+            y_label_size = fontsize_axis
+        if fontsize_ticks is not None:
+            tick_label_size = fontsize_ticks
+        if fontsize_groupnames is not None:
+            rotate_x_labels = 0  # Override rotation if group names font size is specified
+
+        # Apply theme settings
         if theme in DataVisualizer.THEMES:
             theme_config = DataVisualizer.THEMES[theme]
             if colors is None:
@@ -4585,72 +4659,171 @@ class DataVisualizer:
             colors = sns.color_palette(color_palette, len(groups))
         colors = DataVisualizer._extend_list(colors, len(groups))
 
+        # Filter groups
         if group_order is not None:
             groups = [g for g in group_order if g in samples and len(samples[g]) > 0]
         else:
             groups = [g for g in groups if len(samples.get(g, [])) > 0]
 
-        plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
-        df = pd.DataFrame(plot_data)
-
+        # Create figure
         fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
         fig.patch.set_facecolor(figure_face_color)
         ax.set_facecolor(background_color)
-
-        # Violin (half)
+        
+        # Get min and max across all data for consistent scaling
+        all_data = []
+        for g in groups:
+            all_data.extend(samples[g])
+            
+        global_min = min(all_data) if all_data else 0
+        global_max = max(all_data) if all_data else 1
+        data_range = global_max - global_min
+        
+        # Add a bit of padding to the data range
+        global_min -= data_range * 0.05
+        global_max += data_range * 0.05
+        
+        # Define position parameters - y-position for each group
+        ypositions = range(len(groups))
+        
         for i, group in enumerate(groups):
-            vals = samples[group]
+            data = samples[group]
+            if len(data) == 0:
+                continue
+                
             color = colors[i % len(colors)]
-            sns.violinplot(
-                x=[group]*len(vals), y=vals, ax=ax, palette=[color],
-                width=violin_width, linewidth=edge_width, cut=0, bw=0.2,
-                inner=None, order=[group], alpha=alpha
-            )
-            # Overlay boxplot (narrow)
-            sns.boxplot(
-                x=[group]*len(vals), y=vals, ax=ax, palette=[color],
-                width=box_width, linewidth=edge_width, fliersize=0,
-                order=[group], boxprops=dict(alpha=0.7)
-            )
+            y = i  # y-position for this group
+            
+            # 1. Create half-violin above using KDE
+            if len(data) > 1:
+                kde = stats.gaussian_kde(data)
+                x_vals = np.linspace(global_min, global_max, 200)
+                y_vals = kde(x_vals)
+                # Scale to desired width
+                y_vals = y_vals / np.max(y_vals) * 0.4
+                # Draw half-violin (filled)
+                ax.fill_betweenx(x_vals, y, y + y_vals, color=color, alpha=alpha*0.7, 
+                                 edgecolor=edge_color, linewidth=edge_width*0.5)
+            
+            # 2. Create boxplot in center
+            bp = ax.boxplot([data], positions=[y], vert=True, patch_artist=True, 
+                            widths=0.15, showfliers=False)
+            
+            # Style boxplot elements
+            for box in bp['boxes']:
+                box.set(facecolor=color, alpha=0.8, edgecolor=edge_color, linewidth=edge_width)
+            for whisker in bp['whiskers']:
+                whisker.set(color=edge_color, linewidth=edge_width)
+            for cap in bp['caps']:
+                cap.set(color=edge_color, linewidth=edge_width)
+            for median in bp['medians']:
+                median.set(color=edge_color, linewidth=edge_width)
+            
+            # 3. Add jittered points below
+            if show_points:
+                x_jitter = np.random.uniform(-0.05, 0.05, size=len(data))
+                y_points = np.full_like(data, y-0.1)  # Points below boxplot
+                
+                ax.scatter(y_points + x_jitter, data, color=color, alpha=0.8, 
+                          s=20, edgecolor=edge_color, linewidth=edge_width*0.3, zorder=2)
 
-        if show_points:
-            DataVisualizer._add_data_points(
-                ax, groups, samples, point_style, point_size,
-                point_alpha, jitter_strength, max_points_per_group,
-                point_edge_width, strip_dodge
+        # Set up the axis properly
+        ax.set_yticks(ypositions)
+        ax.set_yticklabels([str(g) for g in groups], fontsize=fontsize_groupnames or tick_label_size)
+        ax.set_ylabel("", fontsize=x_label_size)
+        ax.set_xlabel(y_label or "Values", fontsize=y_label_size)
+        
+        if title:
+            ax.set_title(title, fontsize=title_size, pad=20)
+            
+        # Set tick parameters
+        ax.tick_params(axis='x', labelsize=tick_label_size)
+        ax.tick_params(axis='y', labelsize=fontsize_groupnames or tick_label_size)
+        
+        # Key step for correct orientation: flip both axes
+        ax.invert_xaxis()
+        ax.invert_yaxis()
+        
+        # Set proper limits
+        ax.set_xlim(-0.5, len(groups)-0.5)
+        ax.set_ylim(global_max, global_min)  # Inverted y-axis for correct orientation
+        
+        # Make sure spines are consistent
+        for spine in ax.spines.values():
+            spine.set_linewidth(0.7)
+        
+        # Remove y-ticks if too many groups
+        if len(groups) > 10:
+            ax.set_yticks([])
+        
+        # Grid with specified line width (like in preview)
+        if grid_style and grid_style != 'none':
+            if grid_style == 'major':
+                ax.grid(True, axis='x', which='major', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+            elif grid_style == 'minor':
+                ax.grid(True, axis='x', which='minor', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+            elif grid_style == 'both':
+                ax.grid(True, axis='x', which='both', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+        else:
+            ax.grid(False)
+            
+        # Spine styling
+        if spine_style == 'minimal':
+            sns.despine(ax=ax, top=True, right=True)
+        elif spine_style == 'none':
+            sns.despine(ax=ax, top=True, right=True, left=True, bottom=True)
+        
+        # Set axis limits - for horizontal plot, x_limits controls value range
+        if x_limits:
+            ax.set_xlim(x_limits)
+        if y_limits:  # y_limits would control group range (rarely used)
+            ax.set_ylim(y_limits)
+            
+        # Add legend with correct colors
+        if show_legend:
+            if legend_colors is not None:
+                # Use the provided legend colors
+                colors_to_use = legend_colors
+            else:
+                # Use the colors from the plot
+                colors_to_use = colors
+                
+            # Create patches for the legend with the correct colors
+            legend_patches = []
+            for i, group in enumerate(groups):
+                color = colors_to_use.get(group, colors[i % len(colors)]) if isinstance(colors_to_use, dict) else colors[i % len(colors)]
+                patch = mpatches.Patch(color=color, label=str(group), alpha=alpha)
+                legend_patches.append(patch)
+                
+            ax.legend(
+                handles=legend_patches,
+                loc=legend_position,
+                bbox_to_anchor=legend_bbox,
+                fontsize=legend_fontsize,
+                title=legend_title,
+                title_fontsize=legend_title_size,
+                frameon=False
             )
-
-        DataVisualizer._format_axes(
-            ax, y_axis_format, y_limits, x_limits,
-            grid_style, grid_alpha, spine_style
-        )
-        DataVisualizer._add_labels(
-            ax, x_label, y_label, title,
-            x_label_size, y_label_size, title_size,
-            tick_label_size, rotate_x_labels
-        )
-        if show_significance_letters:
-            DataVisualizer._add_significance_letters(
-                ax, df, groups, samples, test_recommendation,
-                significance_height_offset, significance_font_size,
-                "sd"
-            )
-        if show_legend and show_points:
-            DataVisualizer._add_legend(
-                ax, samples, groups, legend_position, legend_bbox,
-                legend_fontsize, legend_title, legend_title_size
-            )
+        
+        # Add any custom annotations
         if custom_annotations:
             DataVisualizer._add_custom_annotations(ax, custom_annotations)
+            
+        # Add watermark if provided
         if watermark:
             DataVisualizer._add_watermark(fig, watermark)
+            
+        # Layout adjustments
         if tight_layout:
             if subplot_margins:
                 plt.subplots_adjust(**subplot_margins)
             else:
                 fig.tight_layout()
+                
+        # Save plot if requested
         if save_plot:
             DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
+            
         return fig, ax
     
     # Helper methods
@@ -4735,9 +4908,18 @@ class DataVisualizer:
         if x_limits:
             ax.set_xlim(x_limits)
         
-        # Grid
-        if grid_style != 'none':
-            ax.grid(True, which=grid_style, alpha=grid_alpha, linestyle='-', linewidth=0.5)
+        # Make sure grid is off by default, only turn on if explicitly requested
+        ax.grid(False)  # First turn off all grid lines
+        
+        # Then conditionally turn on grid if explicitly requested
+        if grid_style and grid_style != 'none':
+            if grid_style == 'major':
+                ax.grid(True, which='major', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+            elif grid_style == 'minor':
+                ax.grid(True, which='minor', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+            elif grid_style == 'both':
+                ax.grid(True, which='both', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+            ax.grid(True, which='both', alpha=grid_alpha, linestyle='-', linewidth=0.5)
         
         # Spine styling
         if spine_style == 'minimal':
@@ -7748,13 +7930,100 @@ class AnalysisManager:
             if not skip_plots:
                 print(f"DEBUG: Current working directory before export: {os.getcwd()}")
                 pairwise_comparisons = results.get('pairwise_comparisons', None)
-                fig, ax = DataVisualizer.plot_bar(groups, filtered_samples, width=width, height=height, 
-                                                  colors=colors, hatches=hatches, compare=compare, 
-                                                  test_recommendation=test_recommendation,
-                                                  x_label=x_label, y_label=y_label,
-                                                  title=title, save_plot=save_plot, error_type=error_type,
-                                                  pairwise_results=pairwise_comparisons,
-                                                  file_name=file_base)
+                
+                # Get plot type from kwargs, default to 'Bar'
+                plot_type = kwargs.get('plot_type', 'Bar')
+                print(f"DEBUG: Creating plot of type: {plot_type}")
+                
+                # Create a clean kwargs dict without parameters that plotting methods don't accept
+                # Only exclude parameters that definitely don't exist in plot methods
+                plot_kwargs = {k: v for k, v in kwargs.items() if k not in [
+                    'plot_type', 'file_path', 'group_col', 'groups', 'sheet_name', 
+                    'value_cols', 'combine_columns', 'skip_plots', 'skip_excel',
+                    'dependent', 'show_individual_lines', 'compare', 'additional_factors',
+                    'dataset_name', 'dialog_column', 'dialog_progress',
+                    # Parameters that don't exist in plot_bar method
+                    'aspect', 'x_label_size', 'y_label_size', 'title_size',
+                    'refline', 'panel_labels', 'value_annotations', 'significance_mode',
+                    'embed_fonts', 'add_metadata',
+                    # Appearance/formatting keys to exclude
+                    'font_main', 'font_axis', 'show_title', 'fontsize_title', 'fontsize_axis',
+                    'fontsize_ticks', 'fontsize_groupnames', 'axis_linewidth', 'bar_linewidth',
+                    'gridline_width', 'grid', 'minor_ticks', 'logy', 'logx', 'despine', 'alpha',
+                    'bar_edge_color', 'bar_edge_width', 'grid_style', 'spine_style', 'tick_label_size',
+                    'dpi'
+                ]}
+                
+                # Choose the appropriate plot function based on plot_type
+                if plot_type == "Bar":
+                    # Ensure show_points is always True for bar plots
+                    plot_kwargs['show_points'] = True
+                    plot_kwargs['point_size'] = plot_kwargs.get('point_size', 80)
+                    plot_kwargs['point_alpha'] = plot_kwargs.get('point_alpha', 0.8)
+                    # Always pass colors to legend
+                    fig, ax = DataVisualizer.plot_bar(
+                        groups, filtered_samples, width=width, height=height,
+                        colors=colors, hatches=hatches, compare=compare,
+                        test_recommendation=test_recommendation,
+                        x_label=x_label, y_label=y_label,
+                        title=title, save_plot=save_plot, error_type=error_type,
+                        pairwise_results=pairwise_comparisons,
+                        file_name=file_base, legend_colors=colors, **plot_kwargs)
+                elif plot_type == "Box":
+                    # Ensure show_points is always True for box plots
+                    fig, ax = DataVisualizer.plot_box(
+                        groups, filtered_samples, width=width, height=height,
+                        colors=colors, hatches=hatches,
+                        test_recommendation=test_recommendation,
+                        x_label=x_label, y_label=y_label,
+                        title=title, save_plot=save_plot,
+                        show_points=True, point_size=80, point_alpha=0.8,
+                        file_name=file_base, legend_colors=colors)
+                elif plot_type == "Violin":
+                    # Ensure show_points is always True for violin plots  
+                    fig, ax = DataVisualizer.plot_violin(
+                        groups, filtered_samples, width=width, height=height,
+                        colors=colors, hatches=hatches,
+                        test_recommendation=test_recommendation,
+                        x_label=x_label, y_label=y_label,
+                        title=title, save_plot=save_plot,
+                        show_points=True, point_size=80, point_alpha=0.8,
+                        file_name=file_base, legend_colors=colors)
+                elif plot_type == "Strip":
+                    # Strip plot doesn't exist, fall back to box plot with points
+                    fig, ax = DataVisualizer.plot_box(
+                        groups, filtered_samples, width=width, height=height,
+                        colors=colors, hatches=hatches,
+                        test_recommendation=test_recommendation,
+                        x_label=x_label, y_label=y_label,
+                        title=title, save_plot=save_plot,
+                        show_points=True, point_size=80, point_alpha=0.8,
+                        file_name=file_base, legend_colors=colors)
+                elif plot_type == "Raincloud":
+                    # Ensure show_points is always True for raincloud plots
+                    fig, ax = DataVisualizer.plot_raincloud(
+                        groups, filtered_samples, width=width, height=height,
+                        colors=colors, hatches=hatches,
+                        test_recommendation=test_recommendation,
+                        x_label=x_label, y_label=y_label,
+                        title=title, save_plot=save_plot,
+                        show_points=True, point_size=80, point_alpha=0.8,
+                        file_name=file_base, legend_colors=colors)
+                else:
+                    # Fallback to bar plot for unknown plot types
+                    print(f"WARNING: Unknown plot type '{plot_type}', falling back to Bar plot")
+                    # Ensure show_points is always True for fallback bar plots
+                    plot_kwargs['show_points'] = True
+                    plot_kwargs['point_size'] = plot_kwargs.get('point_size', 80)
+                    plot_kwargs['point_alpha'] = plot_kwargs.get('point_alpha', 0.8)
+                    fig, ax = DataVisualizer.plot_bar(
+                        groups, filtered_samples, width=width, height=height,
+                        colors=colors, hatches=hatches, compare=compare,
+                        test_recommendation=test_recommendation,
+                        x_label=x_label, y_label=y_label,
+                        title=title, save_plot=save_plot, error_type=error_type,
+                        pairwise_results=pairwise_comparisons,
+                        file_name=file_base, legend_colors=colors, **plot_kwargs)
                 analysis_log += f"\nPlots were saved as:\n"
                 analysis_log += f"  {file_base}.pdf\n"
                 analysis_log += f"  {file_base}.png\n"

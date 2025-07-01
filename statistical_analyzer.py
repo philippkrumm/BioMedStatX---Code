@@ -2,6 +2,8 @@ import sys
 import time 
 import os
 import pandas as pd
+
+# Ensure numpy is imported at the very top
 import numpy as np
 import matplotlib.pyplot as plt
 from readchar import config
@@ -96,6 +98,8 @@ class GroupSelectionDialog(QDialog):
             QMessageBox.critical(parent, "Error", "No groups available! Dialog will not open.")
             raise ValueError("No groups passed to GroupSelectionDialog.")
         super().__init__(parent)
+        # Remove the question mark from the window
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Select Groups")
         self.resize(300, 400)
         
@@ -143,6 +147,7 @@ class ColumnSelectionDialog(QDialog):
             QMessageBox.critical(parent, "Error", "No measurement columns available! Dialog will not open.")
             raise ValueError("No measurement columns passed to ColumnSelectionDialog.")
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Select Measurement Columns")
         self.resize(400, 500)
         
@@ -202,6 +207,7 @@ class PairwiseComparisonDialog(QDialog):
             QMessageBox.critical(parent, "Error", "At least 2 groups are required for pairwise comparisons!")
             raise ValueError("Too few groups passed to PairwiseComparisonDialog.")
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Pairwise Comparisons")
         self.resize(400, 300)
         
@@ -299,6 +305,7 @@ class TwoWayAnovaDialog(QDialog):
             QMessageBox.critical(parent, "Error", "At least 2 groups are required for a Two-Way ANOVA!")
             raise ValueError("Too few groups passed to TwoWayAnovaDialog.")
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Configure Two-Way ANOVA")
         self.resize(500, 400)
         self.groups = groups
@@ -393,6 +400,7 @@ class TwoWayAnovaDialog(QDialog):
 class AdvancedTestDialog(QDialog):
     def __init__(self, parent=None, df=None, default_test=None):
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.df = df  # Store original DataFrame
         self.default_test = default_test
         self.setWindowTitle("Advanced Statistical Tests")
@@ -535,6 +543,8 @@ class PlotConfigDialog(QDialog):
             QMessageBox.warning(parent, "Warning", "There are duplicate group names!")
             # Optional: raise ValueError("Duplicate groups for PlotConfigDialog.")
         super().__init__(parent)
+        # Remove the question mark from the window
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Configure Plot")
         self.groups = groups
         
@@ -640,6 +650,28 @@ class PlotConfigDialog(QDialog):
         
         stats_layout.addLayout(dependent_layout)
         
+        # Connect dependent checkbox to toggle function
+        self.dependent_check.toggled.connect(self.toggle_dependent_options)
+        
+        # Error bar type
+        error_bar_layout = QHBoxLayout()
+        error_bar_label = QLabel("Error bar type:")
+        error_bar_layout.addWidget(error_bar_label)
+        
+        self.error_type_sd = QRadioButton("Standard deviation (SD)")
+        self.error_type_sd.setChecked(True)
+        self.error_type_sem = QRadioButton("Standard error (SEM)")
+        
+        # ButtonGroup for SD/SEM
+        self.error_type_group = QButtonGroup(self)
+        self.error_type_group.addButton(self.error_type_sd)
+        self.error_type_group.addButton(self.error_type_sem)
+        self.error_type_group.setExclusive(True)
+        
+        error_bar_layout.addWidget(self.error_type_sd)
+        error_bar_layout.addWidget(self.error_type_sem)
+        stats_layout.addLayout(error_bar_layout)
+        
         # Options for dependent visualization
         self.dependent_visualization_options = QWidget()
         dependent_vis_layout = QVBoxLayout(self.dependent_visualization_options)
@@ -692,6 +724,9 @@ class PlotConfigDialog(QDialog):
 
         # wire it up so it only shows when create_plot is checked
         self.create_plot_check.toggled.connect(self.appearance_btn.setVisible)
+        
+        # Initialize appearance button text
+        self.update_appearance_button_text()
         
         # List of comparisons
         comparisons_label = QLabel("Specific comparisons:")
@@ -747,6 +782,17 @@ class PlotConfigDialog(QDialog):
         )
         if dlg.exec_() == QDialog.Accepted:
             self.appearance_settings = dlg.get_config()
+            # Update button text to show that settings are configured
+            self.update_appearance_button_text()
+    
+    def update_appearance_button_text(self):
+        """Update the appearance button text to show if settings are configured"""
+        if hasattr(self, 'appearance_settings') and self.appearance_settings:
+            self.appearance_btn.setText("Configure appearance… ✓")
+            self.appearance_btn.setToolTip("Appearance settings are configured. Click to modify.")
+        else:
+            self.appearance_btn.setText("Configure appearance…")
+            self.appearance_btn.setToolTip("Configure plot appearance settings.")
             
     def show_dependent_help(self):
         QMessageBox.information(
@@ -884,6 +930,7 @@ class PlotAestheticsDialog(QDialog):
     """
     def __init__(self, groups, samples, config=None, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Plot Appearance & Preview")
         self.resize(1600, 800)  # Adjusted size
         self.groups = groups
@@ -927,7 +974,7 @@ class PlotAestheticsDialog(QDialog):
         
         # NOW add the plot type combo box AFTER size_layout is created
         self.plot_type_combo = QComboBox()
-        self.plot_type_combo.addItems(["Bar", "Box", "Violin", "Strip"])
+        self.plot_type_combo.addItems(["Bar", "Box", "Violin", "Strip", "Raincloud"])
         size_layout.addWidget(QLabel("Plot type:"), 0, 0)
         size_layout.addWidget(self.plot_type_combo, 0, 1)
         self.plot_type_combo.currentIndexChanged.connect(self.update_preview)  
@@ -960,14 +1007,15 @@ class PlotAestheticsDialog(QDialog):
         # Font selections
         self.font_main = QComboBox(); self.font_main.addItems(["Arial", "Calibri", "Times New Roman", "Georgia"])
         self.font_axis = QComboBox(); self.font_axis.addItems(["Arial", "Calibri", "Times New Roman", "Georgia"])
-        self.font_main.currentTextChanged.connect(self.update_preview)
-        self.font_axis.currentTextChanged.connect(self.update_preview)
+        # Fix: Use activated signal to apply font immediately after selection
+        self.font_main.activated.connect(lambda idx: self.update_preview())
+        self.font_axis.activated.connect(lambda idx: self.update_preview())
         
         # Font sizes
-        self.fontsize_title = QSpinBox(); self.fontsize_title.setRange(6, 30); self.fontsize_title.setValue(12)
-        self.fontsize_axis = QSpinBox(); self.fontsize_axis.setRange(6, 20); self.fontsize_axis.setValue(9)
-        self.fontsize_ticks = QSpinBox(); self.fontsize_ticks.setRange(5, 16); self.fontsize_ticks.setValue(7)
-        self.fontsize_groupnames = QSpinBox(); self.fontsize_groupnames.setRange(5, 16); self.fontsize_groupnames.setValue(8)
+        self.fontsize_title = QSpinBox(); self.fontsize_title.setRange(6, 30); self.fontsize_title.setValue(11)
+        self.fontsize_axis = QSpinBox(); self.fontsize_axis.setRange(6, 20); self.fontsize_axis.setValue(11)
+        self.fontsize_ticks = QSpinBox(); self.fontsize_ticks.setRange(5, 16); self.fontsize_ticks.setValue(11)
+        self.fontsize_groupnames = QSpinBox(); self.fontsize_groupnames.setRange(5, 16); self.fontsize_groupnames.setValue(11)
 
         font_layout.addWidget(QLabel("Title text:"), 1, 0); font_layout.addWidget(self.font_main, 1, 1)
         font_layout.addWidget(QLabel("Axis font:"), 2, 0); font_layout.addWidget(self.font_axis, 2, 1)
@@ -1030,7 +1078,9 @@ class PlotAestheticsDialog(QDialog):
 
         # Checkboxes for grid and ticks
         self.grid_check = QCheckBox("Show grid lines")
+        self.grid_check.setChecked(False)  # Ensure grid is off by default
         self.minor_tick_check = QCheckBox("Minor ticks")
+        self.minor_tick_check.setChecked(False)  # Default to no minor ticks
         self.logy_check = QCheckBox("Y-axis log")
         self.logx_check = QCheckBox("X-axis log")
         self.despine_check = QCheckBox("Remove top and right spines (despine)")
@@ -1197,7 +1247,10 @@ class PlotAestheticsDialog(QDialog):
     def _apply_config(self):
         """Apply stored configuration values to UI elements"""
         if not self.config:
+            # Set reasonable defaults even when no config is provided
+            self.grid_check.setChecked(False)  # Ensure grid is off by default
             return
+            
         if 'plot_type' in self.config and self.plot_type_combo.findText(self.config['plot_type']) >= 0:
             self.plot_type_combo.setCurrentText(self.config['plot_type'])
             
@@ -1410,16 +1463,9 @@ class PlotAestheticsDialog(QDialog):
                 hatch=[config['hatches'][g] for g in groups],
                 alpha=config['alpha'],
                 linewidth=config['bar_linewidth'],
-                edgecolor=config.get('bar_edge_color', 'black')
+                edgecolor=config.get('bar_edge_color', 'black'),
+                capsize=capsize
             )
-
-            # Add error bars with specified style
-            for i, (rect, err) in enumerate(zip(bars, errors)):
-                if err > 0:  # Only add error bars if there's a non-zero error
-                    x = rect.get_x() + rect.get_width() / 2
-                    ax.errorbar(x, means[i], yerr=err, fmt='none',
-                                color='black', capsize=capsize,
-                                linewidth=config['bar_linewidth'] * 0.7)
                     
         elif plot_type == "Box":
             # draw boxes at x = 0,1,2,...
@@ -1471,17 +1517,93 @@ class PlotAestheticsDialog(QDialog):
             # ensure the x-axis shows your group names
             ax.set_xticks(list(range(len(groups))))
             ax.set_xticklabels(groups)
-
-        # Set axis line width
-        for spine in ax.spines.values():
-            spine.set_linewidth(config['axis_linewidth'])
-
-        # Individual points (jittered, always black for preview)
-        for i, g in enumerate(groups):
-            vals = samples[g]
-            x = np.full(len(vals), i)
-            jitter = np.random.uniform(-0.2, 0.2, size=len(vals))
-            ax.scatter(x + jitter, vals, color='black', alpha=0.5, zorder=3)
+        elif plot_type == "Raincloud":
+            # --- Raincloud plot: horizontal, group names on y-axis, all elements perfectly aligned ---
+            import scipy.stats as stats
+            
+            # Get min and max across all data for consistent scaling
+            all_data = []
+            for g in groups:
+                all_data.extend(samples[g])
+                
+            global_min = min(all_data) if all_data else 0
+            global_max = max(all_data) if all_data else 1
+            data_range = global_max - global_min
+            
+            # Add a bit of padding to the data range
+            global_min -= data_range * 0.05
+            global_max += data_range * 0.05
+            
+            # Define position parameters - y-position for each group
+            ypositions = range(len(groups))
+            
+            for i, g in enumerate(groups):
+                vals = np.array(samples[g])
+                color = config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)])
+                y = i  # y-position for this group
+                
+                # 1. Create half-violin above using KDE
+                if len(vals) > 1:
+                    kde = stats.gaussian_kde(vals)
+                    x_vals = np.linspace(global_min, global_max, 200)
+                    y_vals = kde(x_vals)
+                    # Scale to desired width
+                    y_vals = y_vals / np.max(y_vals) * 0.4
+                    # Draw half-violin (filled)
+                    ax.fill_betweenx(x_vals, y, y + y_vals, color=color, alpha=config['alpha']*0.7, 
+                                     edgecolor=config.get('bar_edge_color', 'black'), 
+                                     linewidth=config['bar_linewidth']*0.5)
+                
+                # 2. Create boxplot in center
+                bp = ax.boxplot([vals], positions=[y], vert=True, patch_artist=True, 
+                                widths=0.15, showfliers=False)
+                
+                # Style boxplot elements
+                for box in bp['boxes']:
+                    box.set(facecolor=color, alpha=config['alpha'], 
+                            edgecolor=config.get('bar_edge_color', 'black'), 
+                            linewidth=config['bar_linewidth'])
+                for whisker in bp['whiskers']:
+                    whisker.set(color=config.get('bar_edge_color', 'black'), 
+                               linewidth=config['bar_linewidth'])
+                for cap in bp['caps']:
+                    cap.set(color=config.get('bar_edge_color', 'black'), 
+                           linewidth=config['bar_linewidth'])
+                for median in bp['medians']:
+                    median.set(color=config.get('bar_edge_color', 'black'), 
+                              linewidth=config['bar_linewidth'])
+                
+                # 3. Add jittered points below
+                x_jitter = np.random.uniform(-0.05, 0.05, size=len(vals))
+                y_points = np.full_like(vals, y-0.1)  # Points below boxplot
+                
+                ax.scatter(y_points + x_jitter, vals, color=color, alpha=config['alpha']*0.8, 
+                          s=20, edgecolor=config.get('bar_edge_color', 'black'), 
+                          linewidth=config['bar_linewidth']*0.3, zorder=2)
+            
+            # Set up the axis properly
+            ax.set_yticks(ypositions)
+            ax.set_yticklabels(groups, fontsize=config['fontsize_groupnames'])
+            ax.set_ylabel("")
+            ax.set_xlabel("Values", fontsize=config['fontsize_axis'])
+            
+            # Key step for correct orientation: flip both axes
+            ax.invert_xaxis()
+            ax.invert_yaxis()
+            
+            # Set proper limits
+            ax.set_xlim(-0.5, len(groups)-0.5)
+            ax.set_ylim(global_max, global_min)  # Inverted y-axis for correct orientation
+            
+            # Make sure spines are consistent
+            for spine in ax.spines.values():
+                spine.set_linewidth(0.7)
+                
+            # Remove y-ticks if too many groups
+            if len(groups) > 10:
+                ax.set_yticks([])
+            ax.tick_params(axis='x', labelsize=config['fontsize_ticks'])
+            ax.tick_params(axis='y', labelsize=config['fontsize_groupnames'])
 
         # Set axis line width
         for spine in ax.spines.values():
@@ -1555,6 +1677,7 @@ class PlotAestheticsDialog(QDialog):
 class TransformationDialog(QDialog):
     def __init__(self, test_info=None, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.test_info = test_info
         self.transformation = None
         self.setWindowTitle("Select Data Transformation")
@@ -1606,6 +1729,7 @@ class OutlierDetectionDialog(QDialog):
     """Dialog for configuring outlier detection analysis"""
     def __init__(self, df, parent=None):
         super().__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Outlier Detection")
         self.resize(600, 500)  # Make it slightly wider
         self.df = df
@@ -1830,13 +1954,15 @@ class OutlierDetectionDialog(QDialog):
         return config
 
 
+import numpy as np
+
 class StatisticalAnalyzerApp(QMainWindow):
     """Main application for statistical analysis of data from Excel/CSV files."""
     
     def __init__(self):
         """Initializes the application with all UI elements."""
         super().__init__()
-        self.setWindowTitle("Statistical Data Analyzer")
+        self.setWindowTitle("BioMedStatX")
         self.setGeometry(100, 50, 1600, 1300)
         
         # Data attributes
@@ -1872,19 +1998,30 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         # Help menu
         help_menu = menubar.addMenu('&Help')
-        
+
         dependent_help_action = QAction('Dependent Samples', self)
         dependent_help_action.triggered.connect(self.show_dependent_samples_help)
         help_menu.addAction(dependent_help_action)
-        
-        about_action = QAction('About', self)
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+
+        # New: Graph Visualization help
+        graph_vis_action = QAction('Graph Visualization', self)
+        graph_vis_action.triggered.connect(self.show_graph_visualization_help)
+        help_menu.addAction(graph_vis_action)
+
+        # New: Statistical Tests & Excel Export help
+        stats_excel_action = QAction('Statistical Tests && Excel Export', self)
+        stats_excel_action.triggered.connect(self.show_statistical_tests_excel_help)
+        help_menu.addAction(stats_excel_action)
 
         # Advanced tests in help menu
         advanced_action = QAction('Advanced Tests', self)
         advanced_action.triggered.connect(self.show_advanced_tests_help)
         help_menu.addAction(advanced_action)
+
+        # About should be last
+        about_action = QAction('About', self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
 
         # Analysis menu (create new or use existing)
         analysis_menu = menubar.addMenu('&Analysis')
@@ -1903,12 +2040,117 @@ class StatisticalAnalyzerApp(QMainWindow):
     def show_about(self):
         QMessageBox.information(
             self,
-            "About Statistical Data Analyzer",
-            "<h2>Statistical Data Analyzer</h2>"
-              "<p>Version 1.0</p>"
-              "<p>An application for statistical analysis and visualization of data.</p>"
-              "<p>© 2023</p>"
+            "About BioMedStatX",
+            """
+            <h2>BioMedStatX</h2>
+            <p>Version 1.0</p>
+            <p>An application for statistical analysis and visualization of data.</p>
+            <p>© 2025 Philipp Krumm &lt;philipp.krumm@rwth-aachen.de&gt;<br>
+            Uniklinik RWTH Aachen<br>
+            Department of Anatomy and Cell Biology</p>
+            """
         )
+
+    def show_graph_visualization_help(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QPushButton
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Graph Visualization")
+        dlg.resize(800, 600)
+        layout = QVBoxLayout(dlg)
+        browser = QTextBrowser()
+        browser.setHtml("""
+            <h3>Graph Visualization</h3>
+            <ul>
+                <li><b>Plot types:</b> Bar, box, violin, and strip plots are generated from your data. Each type visualizes group distributions differently:
+                    <ul>
+                        <li><b>Bar:</b> Shows group means with error bars.</li>
+                        <li><b>Box:</b> Displays medians, quartiles, and outliers.</li>
+                        <li><b>Violin:</b> Combines boxplot with a kernel density estimate.</li>
+                        <li><b>Strip:</b> Shows all individual data points as dots.</li>
+                    </ul>
+                </li>
+                <li><b>Switching plot types:</b> Use the plot configuration or appearance dialog to select your preferred plot type.</li>
+                <li><b>Appearance adjustments:</b>
+                    <ul>
+                        <li>Change <b>colors</b> and <b>hatches</b> for each group.</li>
+                        <li>Choose <b>error bar type</b>: Standard deviation (SD) or standard error (SEM).</li>
+                        <li>Set <b>error bar style</b>: With caps or line only.</li>
+                        <li>Customize <b>fonts</b>, <b>axes</b>, and <b>grid lines</b> for clarity.</li>
+                    </ul>
+                </li>
+                <li><b>Overlay features:</b>
+                    <ul>
+                        <li>Show <b>individual data points</b> on box, violin, or strip plots.</li>
+                        <li>Add <b>statistical annotations</b>: Letters (grouping) or bars (significance lines) to highlight significant differences.</li>
+                    </ul>
+                </li>
+            </ul>
+        """)
+        layout.addWidget(browser)
+        btn = QPushButton("OK")
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn)
+        dlg.exec_()
+
+    def show_statistical_tests_excel_help(self):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QPushButton
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Statistical Tests & Excel Export")
+        dlg.resize(900, 600)
+        layout = QVBoxLayout(dlg)
+        browser = QTextBrowser()
+        browser.setHtml("""
+            <h3>Statistical Tests & Excel Export</h3>
+            <ul>
+                <li><b>How does the program select the test?</b>
+                    <ul>
+                        <li>The program automatically detects the appropriate test based on group count and data structure.</li>
+                        <li><b>Two independent groups:</b>
+                            <ul>
+                                <li><b>t-Test</b> (parametric): Used when data is normally distributed and variances are comparable.</li>
+                                <li><b>Mann-Whitney-U Test</b> (non-parametric): Used when assumptions for t-test are not met.</li>
+                            </ul>
+                        </li>
+                        <li><b>Two dependent groups (e.g. paired measurements):</b>
+                            <ul>
+                                <li><b>Paired t-Test</b> (parametric): For normally distributed differences.</li>
+                                <li><b>Wilcoxon signed-rank test</b> (non-parametric): For non-normally distributed differences.</li>
+                            </ul>
+                        </li>
+                        <li><b>More than two independent groups:</b>
+                            <ul>
+                                <li><b>One-Way ANOVA</b> (parametric): For normally distributed data with equal variances.</li>
+                                <li><b>Kruskal-Wallis Test</b> (non-parametric): When ANOVA assumptions are violated.</li>
+                            </ul>
+                        </li>
+                        <li>The decision is based on normality tests (Shapiro-Wilk) and variance homogeneity (Levene test). When assumptions are violated, a non-parametric test is automatically selected.</li>
+                        <li>Post-hoc tests (e.g. pairwise comparisons) are automatically added when significant differences are found.</li>
+                        <li><i>Note: Advanced tests like Mixed ANOVA, Two-Way ANOVA, and Repeated-Measures ANOVA are explained in the separate "Advanced Tests" help section.</i></li>
+                    </ul>
+                </li>
+                <li><b>Interpreting Results:</b>
+                    <ul>
+                        <li><b>p-values</b> indicate the probability that observed differences are due to chance.</li>
+                        <li><b>Significance indicators</b> (letters or bars) show which groups differ significantly.</li>
+                        <li>Key statistics (means, standard deviations, test statistics) are clearly displayed.</li>
+                    </ul>
+                </li>
+                <li><b>Excel Export:</b>
+                    <ul>
+                        <li>Results are written to an Excel workbook with separate worksheets for each analysis.</li>
+                        <li>Sheet names reflect the test or plot type (e.g. "ANOVA Results", "Pairwise Comparisons").</li>
+                        <li>Each sheet contains clear columns: group names, means, test statistics, p-values, and significance markers.</li>
+                        <li>Open the exported file in Excel to review, print, or share results. Use the tabs to switch between analyses.</li>
+                    </ul>
+                </li>
+            </ul>
+            <p style='color:gray; font-size:90%'>Note: Advanced/complex tests (e.g. Mixed ANOVA, Two-Way ANOVA) are explained in a separate help page.</p>
+        """)
+        layout.addWidget(browser)
+        btn = QPushButton("OK")
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn)
+        dlg.exec_()
         
     def init_ui(self):
         from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -2009,6 +2251,11 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         self.groups_list = QListWidget()
         self.groups_list.setObjectName("lstAvailableGroups")
+        # Enable multi-selection for comparing groups
+        self.groups_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.groups_list.setToolTip("Select groups to preview (Ctrl+Click for multiple selection)")
+        # Verbindung für automatische Preview-Updates bei Änderung der Gruppenselektion
+        self.groups_list.itemSelectionChanged.connect(self.update_preview_on_selection_change)
         groups_layout.addWidget(self.groups_list)
         
         # Buttons for group selection
@@ -2052,8 +2299,9 @@ class StatisticalAnalyzerApp(QMainWindow):
         main_layout.addLayout(groups_and_plots)
         
         # Plot preview
-        preview_section = QGroupBox("Plot Preview")
+        preview_section = QGroupBox("Live Plot Preview")
         preview_section.setObjectName("grpPlotPreview")
+        preview_section.setToolTip("Shows preview of selected groups. Updates automatically when data changes.")
         preview_layout = QVBoxLayout(preview_section)
         preview_layout.setObjectName("lyoPreviewSection")
         
@@ -2302,6 +2550,9 @@ class StatisticalAnalyzerApp(QMainWindow):
             # New validation for possible dependent samples
             self.validate_dependent_samples_possibility()
             
+            # Automatische Preview erstellen wenn Samples geladen sind
+            self.auto_generate_preview()
+            
         except Exception as e:
             self.samples = None
             QMessageBox.warning(self, "Warning", f"Error importing data: {str(e)}")
@@ -2539,6 +2790,12 @@ class StatisticalAnalyzerApp(QMainWindow):
         if 'additional_factors' in config and config['additional_factors']:
             dialog.additional_factors = config['additional_factors']
         
+        # WICHTIG: Appearance settings wiederherstellen
+        if 'appearance_settings' in config:
+            dialog.appearance_settings = config['appearance_settings']
+            # Update button text to reflect that settings are already configured
+            dialog.update_appearance_button_text()
+        
         if dialog.exec_() == QDialog.Accepted:
             # Update the configuration with new values
             self.plot_configs[index] = dialog.get_config()
@@ -2694,13 +2951,8 @@ class StatisticalAnalyzerApp(QMainWindow):
         """Creates a preview of the selected plot."""
         current_row = self.plots_list.currentRow()
         if current_row >= 0:
-            # Update with full appearance settings
-            plot_config = self.plot_configs[current_row]
-            if 'appearance_settings' in plot_config:
-                # Apply appearance_settings consistently
-                self.preview_plot(current_row)
-            else:
-                QMessageBox.warning(self, "Note", "This plot has no appearance settings configured.")
+            # Always show preview, regardless of appearance settings
+            self.preview_plot(current_row)
         else:
             QMessageBox.warning(self, "Error", "Please select a plot from the list.")
     
@@ -2754,13 +3006,13 @@ class StatisticalAnalyzerApp(QMainWindow):
                 axis_linewidth = appearance.get('axis_linewidth', 0.7)
                 bar_linewidth = appearance.get('bar_linewidth', 1.0)
                 gridline_width = appearance.get('gridline_width', 0.5)
-                grid = appearance.get('grid', False)
+                grid = appearance.get('grid', False)  # Default should be False
                 minor_ticks = appearance.get('minor_ticks', False)
                 despine = appearance.get('despine', True)
-                fontsize_axis = appearance.get('fontsize_axis', 9)
-                fontsize_ticks = appearance.get('fontsize_ticks', 7)
-                fontsize_groupnames = appearance.get('fontsize_groupnames', 8)
-                fontsize_title = appearance.get('fontsize_title', 12)
+                fontsize_axis = appearance.get('fontsize_axis', 11)
+                fontsize_ticks = appearance.get('fontsize_ticks', 11)
+                fontsize_groupnames = appearance.get('fontsize_groupnames', 11)
+                fontsize_title = appearance.get('fontsize_title', 11)
                 show_title = appearance.get('show_title', True)
                 title = plot_config.get('title', 'Preview')
                 bar_edge_color = appearance.get('bar_edge_color', 'black')
@@ -2772,13 +3024,13 @@ class StatisticalAnalyzerApp(QMainWindow):
                 axis_linewidth = 1.0
                 bar_linewidth = 1.0
                 gridline_width = 0.5
-                grid = True
+                grid = False  # Default to False like in appearance settings
                 minor_ticks = False
                 despine = True
-                fontsize_axis = 9
-                fontsize_ticks = 7
-                fontsize_groupnames = 8
-                fontsize_title = 12
+                fontsize_axis = 11
+                fontsize_ticks = 11
+                fontsize_groupnames = 11
+                fontsize_title = 11
                 show_title = True
                 title = plot_config.get('title', 'Preview')
                 bar_edge_color = 'black'
@@ -2789,10 +3041,20 @@ class StatisticalAnalyzerApp(QMainWindow):
 
             groups = plot_config['groups']
             samples = {g: plot_samples[g] for g in groups}
+            import numpy as np  # Ensure np is available in this scope
             means = [np.mean(samples[g]) if samples[g] else 0 for g in groups]
-            errors = [np.std(samples[g]) if samples[g] else 0 for g in groups]
+            
+            # Calculate errors based on error_type
+            if error_type == 'se':
+                errors = [np.std(samples[g]) / np.sqrt(len(samples[g])) if samples[g] and len(samples[g]) > 0 else 0 for g in groups]
+            else:  # 'sd'
+                errors = [np.std(samples[g]) if samples[g] else 0 for g in groups]
+            
             bars = None
 
+            # --- First ensure that grid is turned off by default ---
+            ax.grid(False)
+            
             # --- Plot type selection ---
             if plot_type == "Bar":
                 bars = ax.bar(
@@ -2803,6 +3065,14 @@ class StatisticalAnalyzerApp(QMainWindow):
                     linewidth=bar_linewidth,
                     edgecolor=bar_edge_color
                 )
+                
+                # Add individual data points with jitter
+                for i, g in enumerate(groups):
+                    vals = samples[g]
+                    x = np.full(len(vals), i)
+                    jitter = np.random.uniform(-0.2, 0.2, size=len(vals))
+                    ax.scatter(x + jitter, vals, color='black', alpha=0.6, zorder=3, s=40, edgecolors='white', linewidths=0.5)
+                    
             elif plot_type == "Box":
                 bp = ax.boxplot(
                     [samples[g] for g in groups],
@@ -2826,6 +3096,13 @@ class StatisticalAnalyzerApp(QMainWindow):
                     median.set_linewidth(bar_linewidth)
                 for flier in bp['fliers']:
                     flier.set_markeredgecolor(bar_edge_color)
+                    
+                # Add individual data points with jitter
+                for i, g in enumerate(groups):
+                    vals = samples[g]
+                    x = np.full(len(vals), i + 1)  # boxplot positions are 1-indexed
+                    jitter = np.random.uniform(-0.2, 0.2, size=len(vals))
+                    ax.scatter(x + jitter, vals, color='black', alpha=0.6, zorder=3, s=40, edgecolors='white', linewidths=0.5)
 
             elif plot_type == "Violin":
                 vp = ax.violinplot(
@@ -2838,6 +3115,13 @@ class StatisticalAnalyzerApp(QMainWindow):
                     pc.set_linewidth(bar_linewidth)
                     pc.set_alpha(alpha)
                     pc.set_facecolor(colors[i % len(colors)])
+                    
+                # Add individual data points with jitter
+                for i, g in enumerate(groups):
+                    vals = samples[g]
+                    x = np.full(len(vals), i + 1)  # violin positions are 1-indexed
+                    jitter = np.random.uniform(-0.15, 0.15, size=len(vals))
+                    ax.scatter(x + jitter, vals, color='black', alpha=0.5, zorder=3, s=30, edgecolors='white', linewidths=0.3)
             elif plot_type == "Strip":
                 for i, g in enumerate(groups):
                     vals = samples[g]
@@ -2850,6 +3134,48 @@ class StatisticalAnalyzerApp(QMainWindow):
                         s=60,
                         linewidths=bar_linewidth
                     )
+            elif plot_type == "Raincloud":
+                # --- Raincloud-Plot wie im Beispiel: horizontal, Box, Violin, Scatter ---
+                ax.clear()
+                import numpy as np
+                from scipy import stats
+                # Daten vorbereiten
+                data_x = [np.array(samples[g]) for g in groups]
+                n_groups = len(groups)
+                # Farben wie im Beispiel, aber dynamisch
+                boxplots_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
+                violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
+                scatter_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
+                # Boxplot
+                bp = ax.boxplot(data_x, patch_artist=True, vert=False)
+                for patch, color in zip(bp['boxes'], boxplots_colors):
+                    patch.set_facecolor(color)
+                    patch.set_alpha(0.4)
+                # Violinplot
+                vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False)
+                for idx, b in enumerate(vp['bodies']):
+                    m = np.mean(b.get_paths()[0].vertices[:, 0])
+                    # Nur obere Hälfte anzeigen
+                    b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], idx+1, idx+2)
+                    b.set_color(violin_colors[idx % len(violin_colors)])
+                # Scatter
+                for idx, features in enumerate(data_x):
+                    y = np.full(len(features), idx + .8)
+                    idxs = np.arange(len(y))
+                    out = y.astype(float)
+                    out.flat[idxs] += np.random.uniform(low=-.05, high=.05, size=len(idxs))
+                    y = out
+                    ax.scatter(features, y, s=10, c=scatter_colors[idx % len(scatter_colors)], alpha=0.8)
+                # Achsen und Labels
+                ax.set_yticks(np.arange(1, n_groups+1, 1))
+                ax.set_yticklabels(groups, fontsize=fontsize_groupnames)
+                ax.set_xlabel("Values", fontsize=fontsize_axis)
+                ax.set_ylabel("")
+                ax.set_title(title, fontsize=fontsize_title)
+                # Layout
+                ax.set_xlim(left=min([min(d) for d in data_x if len(d)>0])-1, right=max([max(d) for d in data_x if len(d)>0])+1)
+                ax.set_ylim(0.5, n_groups+1)
+                ax.grid(False)
 
             # --- Formatting ---
             if show_title and title:
@@ -2863,8 +3189,14 @@ class StatisticalAnalyzerApp(QMainWindow):
             ax.tick_params(axis='x', rotation=45)
 
             # Grid and minor ticks
+            # First make sure all grid is off by default
+            ax.grid(False)
+            
+            # Then conditionally turn on grid only if explicitly requested
             if grid:
                 ax.grid(True, axis='y', alpha=0.2, linewidth=gridline_width)
+                
+            # Enable minor ticks if requested
             if minor_ticks:
                 ax.minorticks_on()
                 ax.tick_params(which='minor', length=3, color='black', width=0.5)
@@ -2936,6 +3268,20 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         QMessageBox.information(self, "Success", f"{success_count} of {len(self.plot_configs)} plots were successfully created and saved.")
 
+        # Nach erfolgreicher Gesamtanalyse fragen, ob alle Konfigurationen gelöscht werden sollen
+        if success_count > 0:
+            reply = QMessageBox.question(self, "All Analyses Complete", 
+                f"All {success_count} plot analyses completed successfully!\n\n" +
+                "Would you like to clear all plot configurations to start fresh?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            
+            if reply == QMessageBox.Yes:
+                # Clear all plot configurations
+                self.plot_configs.clear()
+                self.plots_list.clear()
+                self.figure.clear()
+                self.canvas.draw()
+
         # Add this cleanup code
         import matplotlib.pyplot as plt
         plt.close('all')  # Close all matplotlib figures to free memory
@@ -2991,10 +3337,10 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'font_main': appearance.get('font_main', 'Arial'),
                 'font_axis': appearance.get('font_axis', 'Arial'),
                 'show_title': appearance.get('show_title', True),
-                'fontsize_title': appearance.get('fontsize_title', 12),
-                'fontsize_axis': appearance.get('fontsize_axis', 9),
-                'fontsize_ticks': appearance.get('fontsize_ticks', 7),
-                'fontsize_groupnames': appearance.get('fontsize_groupnames', 8),
+                'fontsize_title': appearance.get('fontsize_title', 11),
+                'fontsize_axis': appearance.get('fontsize_axis', 11),
+                'fontsize_ticks': appearance.get('fontsize_ticks', 11),
+                'fontsize_groupnames': appearance.get('fontsize_groupnames', 11),
                 'axis_linewidth': appearance.get('axis_linewidth', 0.7),
                 'bar_linewidth': appearance.get('bar_linewidth', 1.0),
                 'gridline_width': appearance.get('gridline_width', 0.5),
@@ -3013,6 +3359,16 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'add_metadata': appearance.get('add_metadata', False),
                 'colors': [appearance['colors'].get(g) for g in plot_config['groups']],
                 'hatches': [appearance['hatches'].get(g) for g in plot_config['groups']],
+                # Map to plot_bar function parameter names
+                'bar_edge_width': appearance.get('bar_linewidth', 1.0),
+                'point_size': 80,  # Larger default point size
+                'show_points': True,  # Enable individual points
+                'grid_style': 'none' if not appearance.get('grid', False) else 'major',
+                'spine_style': 'minimal' if appearance.get('despine', True) else 'default',
+                'tick_label_size': appearance.get('fontsize_ticks', 11),
+                'x_label_size': appearance.get('fontsize_axis', 11),
+                'y_label_size': appearance.get('fontsize_axis', 11),
+                'title_size': appearance.get('fontsize_title', 11),
             })
 
         # Additional factors for two-way ANOVA
@@ -3062,7 +3418,15 @@ class StatisticalAnalyzerApp(QMainWindow):
                 path = os.path.join(os.getcwd(), f"{base}.{ext}" if ext!='xlsx' else f"{base}_results.xlsx")
                 if os.path.exists(path): files.append(path)
             if files:
-                QMessageBox.information(self, "Success", "Created:\n" + "\n".join(files))
+                # Nach erfolgreicher Analyse fragen, ob Konfigurationen gelöscht werden sollen
+                reply = QMessageBox.question(self, "Success", 
+                    f"Analysis completed successfully!\n\nCreated:\n" + "\n".join(files) + 
+                    "\n\nWould you like to clear the plot configuration to start fresh?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                
+                if reply == QMessageBox.Yes:
+                    # Clear the specific plot configuration that was just analyzed
+                    self.clear_plot_config_after_analysis(plot_config)
             else:
                 QMessageBox.warning(self, "Warning", "No output files were found.")
 
@@ -3074,6 +3438,153 @@ class StatisticalAnalyzerApp(QMainWindow):
             os.chdir(original_cwd)
             plt.close('all')
 
+    def clear_plot_config_after_analysis(self, analyzed_config):
+        """Entfernt eine spezifische Plot-Konfiguration nach erfolgreicher Analyse"""
+        try:
+            # Find the config in the list and remove it
+            for i, config in enumerate(self.plot_configs):
+                if (config.get('groups') == analyzed_config.get('groups') and 
+                    config.get('title') == analyzed_config.get('title') and
+                    config.get('file_name') == analyzed_config.get('file_name')):
+                    
+                    # Remove from both list and configs
+                    self.plots_list.takeItem(i)
+                    self.plot_configs.pop(i)
+                    
+                    # Clear preview if no plots left
+                    if len(self.plot_configs) == 0:
+                        self.figure.clear()
+                        self.canvas.draw()
+                    break
+                    
+        except Exception as e:
+            print(f"Error clearing plot config: {e}")
+    
+    def auto_generate_preview(self):
+        """Erstellt automatisch eine Preview mit allen verfügbaren Gruppen"""
+        if not self.samples or not self.available_groups:
+            # Clear preview if no data
+            self.figure.clear()
+            self.canvas.draw()
+            return
+            
+        try:
+            # Create a temporary plot config with all available groups
+            temp_config = {
+                'groups': self.available_groups[:],  # Copy all available groups
+                'title': 'Data Preview',
+                'x_label': None,
+                'y_label': None,
+                'error_type': 'sd',
+                'create_plot': True
+            }
+            
+            # Use the existing preview_plot logic but with the temp config
+            self.preview_auto_plot(temp_config)
+            
+        except Exception as e:
+            print(f"Error in auto_generate_preview: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def preview_auto_plot(self, plot_config):
+        """Erstellt eine automatische Preview basierend auf einer temporären Konfiguration"""
+        try:
+            # Clear the figure
+            self.figure.clear()
+            ax = self.figure.add_subplot(111)
+
+            # Prepare data
+            plot_samples = {}
+            for group in plot_config.get('groups', []):
+                if self.samples and group in self.samples:
+                    plot_samples[group] = self.samples[group]
+
+            if not plot_samples:
+                # Show empty preview
+                ax.text(0.5, 0.5, 'No data available\nSelect groups and configure plot', 
+                       ha='center', va='center', transform=ax.transAxes,
+                       fontsize=12, color='gray')
+                self.figure.tight_layout()
+                self.canvas.draw()
+                return
+
+            # Use default settings for auto preview
+            groups = plot_config['groups']
+            samples = {g: plot_samples[g] for g in groups}
+            means = [np.mean(samples[g]) if samples[g] else 0 for g in groups]
+            errors = [np.std(samples[g]) if samples[g] else 0 for g in groups]
+            
+            # Use default colors
+            colors = [DEFAULT_COLORS[i % len(DEFAULT_COLORS)] for i in range(len(groups))]
+            
+            # Simple bar plot
+            bars = ax.bar(
+                groups, means, yerr=errors,
+                color=colors,
+                alpha=0.8,
+                edgecolor='black',
+                linewidth=0.8
+            )
+
+            # Individual points (jittered)
+            for i, g in enumerate(groups):
+                vals = samples[g]
+                x = np.full(len(vals), i)
+                jitter = np.random.uniform(-0.2, 0.2, size=len(vals))
+                ax.scatter(x + jitter, vals, color='black', alpha=0.6, zorder=3, s=30)
+
+            # Basic formatting with new default font sizes
+            ax.set_title(plot_config.get('title', 'Data Preview'), fontsize=11)
+            if plot_config.get('x_label'):
+                ax.set_xlabel(plot_config['x_label'], fontsize=11)
+            if plot_config.get('y_label'):
+                ax.set_ylabel(plot_config['y_label'], fontsize=11)
+            
+            # Set tick label sizes
+            plt.setp(ax.get_xticklabels(), fontsize=11)
+            plt.setp(ax.get_yticklabels(), fontsize=11)
+            
+            # Rotate x-axis labels if many groups
+            if len(groups) > 3:
+                ax.tick_params(axis='x', rotation=45)
+            
+            # Clean styling - no grid by default, despine enabled
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+            self.figure.tight_layout()
+            self.canvas.draw()
+            
+        except Exception as e:
+            print(f"Error in preview_auto_plot: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def update_preview_on_selection_change(self):
+        """Aktualisiert die Preview basierend auf der aktuellen Gruppenselektion"""
+        if not self.samples:
+            return
+            
+        # Get selected groups from the list
+        selected_items = self.groups_list.selectedItems()
+        if selected_items:
+            # Use only selected groups for preview
+            selected_groups = [item.text() for item in selected_items]
+        else:
+            # If nothing selected, show all groups
+            selected_groups = self.available_groups[:]
+        
+        if selected_groups:
+            temp_config = {
+                'groups': selected_groups,
+                'title': f'Preview: {", ".join(selected_groups)}' if len(selected_groups) <= 3 else f'Preview: {len(selected_groups)} groups',
+                'x_label': None,
+                'y_label': None,
+                'error_type': 'sd',
+                'create_plot': True
+            }
+            self.preview_auto_plot(temp_config)
             
     # Neue Methode für die Anzeige einer Hilfefunktion zu abhängigen Stichproben
     def show_dependent_samples_help(self):
@@ -3102,23 +3613,109 @@ class StatisticalAnalyzerApp(QMainWindow):
         )
     
     def show_advanced_tests_help(self):
-        """Shows an overview of ANOVA types and between/within factors."""
-        QMessageBox.information(
-            self,
-            "Advanced Tests",
-            "<h3>Types of ANOVA</h3>"
-            "<ul>"
-            "<li><b>One-way ANOVA:</b> Compare means of ≥ 2 independent groups</li>"
-            "<li><b>Welch-ANOVA:</b> One-way ANOVA with unequal variances</li>"
-            "<li><b>Kruskal-Wallis:</b> Non-parametric alternative to one-way ANOVA</li>"
-            "<li><b>Two-way ANOVA:</b> Two between factors (e.g. gender × treatment)</li>"
-            "<li><b>Repeated Measures ANOVA:</b> ≥ 1 within factor (repeated measurements on the same subject)</li>"
-            "<li><b>Mixed ANOVA:</b> Combination of between and within factors</li>"
-            "</ul>"
-            "<h3>Between vs. Within Factors</h3>"
-            "<p><b>Between factor:</b> Groups are independent (different subjects)</p>"
-            "<p><b>Within factor:</b> Same subjects are measured multiple times (e.g. before/after)</p>"
-        )
+        """Shows detailed information about advanced ANOVA types and their applications."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QPushButton
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Advanced Statistical Tests - ANOVA Types")
+        dlg.resize(900, 700)
+        layout = QVBoxLayout(dlg)
+        
+        browser = QTextBrowser()
+        browser.setHtml("""
+            <h2>Advanced ANOVA Types</h2>
+            
+            <h3>1. Repeated Measures ANOVA (Within-Subjects)</h3>
+            <p><b>What it does:</b> Analyzes data where the same subjects are measured multiple times under different conditions or at different time points.</p>
+            
+            <p><b>Data structure required:</b></p>
+            <ul>
+                <li><b>Subject column:</b> Unique identifier for each participant (e.g., Subject_01, Subject_02...)</li>
+                <li><b>Within factor:</b> The repeated condition (e.g., Time: Pre, Post, Follow-up)</li>
+                <li><b>Dependent variable:</b> The measured outcome (e.g., blood pressure, test score)</li>
+            </ul>
+            
+            <p><b>Example experiments:</b></p>
+            <ul>
+                <li><b>Drug efficacy over time:</b> Measure blood pressure in the same patients before treatment, after 1 week, and after 1 month</li>
+                <li><b>Learning effects:</b> Test the same students' performance on 3 different learning methods</li>
+                <li><b>Cognitive tasks:</b> Measure reaction time under different stimulus conditions in the same participants</li>
+                <li><b>Exercise intervention:</b> Measure fitness scores in athletes at baseline, mid-training, and post-training</li>
+            </ul>
+            
+            <p><b>Advantages:</b> Controls for individual differences, requires fewer participants, higher statistical power</p>
+            <p><b>Assumptions:</b> Sphericity (equal variances of differences), normality of differences</p>
+            
+            <hr>
+            
+            <h3>2. Mixed ANOVA (Between + Within Factors)</h3>
+            <p><b>What it does:</b> Combines between-subjects factors (different groups) with within-subjects factors (repeated measures).</p>
+            
+            <p><b>Data structure required:</b></p>
+            <ul>
+                <li><b>Subject column:</b> Unique identifier for each participant</li>
+                <li><b>Between factor:</b> Groups that subjects belong to (e.g., Treatment: Drug vs Placebo)</li>
+                <li><b>Within factor:</b> Repeated conditions (e.g., Time: Pre, Post, Follow-up)</li>
+                <li><b>Dependent variable:</b> The measured outcome</li>
+            </ul>
+            
+            <p><b>Example experiments:</b></p>
+            <ul>
+                <li><b>Clinical trial:</b> Compare drug vs placebo (between) measured at pre/post/follow-up (within)</li>
+                <li><b>Gender and learning:</b> Male vs female students (between) tested on 3 different learning methods (within)</li>
+                <li><b>Age groups and memory:</b> Young vs elderly participants (between) with memory tests under 3 difficulty levels (within)</li>
+                <li><b>Diet intervention:</b> Low-carb vs low-fat diet groups (between) with weight measured monthly over 6 months (within)</li>
+            </ul>
+            
+            <p><b>Analysis results:</b></p>
+            <ul>
+                <li><b>Main effect of between factor:</b> Do groups differ overall?</li>
+                <li><b>Main effect of within factor:</b> Do measurements change over time/conditions?</li>
+                <li><b>Interaction effect:</b> Do groups respond differently over time/conditions?</li>
+            </ul>
+            
+            <p><b>Advantages:</b> Most comprehensive design, tests multiple hypotheses simultaneously</p>
+            
+            <hr>
+            
+            <h3>3. Two-Way ANOVA (Between-Subjects Only)</h3>
+            <p><b>What it does:</b> Analyzes the effects of two independent categorical factors on a continuous outcome, where each subject belongs to only one combination of factor levels.</p>
+            
+            <p><b>Data structure required:</b></p>
+            <ul>
+                <li><b>Factor A:</b> First categorical variable (e.g., Treatment: Drug A, Drug B, Placebo)</li>
+                <li><b>Factor B:</b> Second categorical variable (e.g., Gender: Male, Female)</li>
+                <li><b>Dependent variable:</b> The measured outcome</li>
+                <li>Each subject appears in only one cell of the design</li>
+            </ul>
+            
+            <p><b>Example experiments:</b></p>
+            <ul>
+                <li><b>Drug and gender effects:</b> Test 3 medications (Factor A) in both male and female patients (Factor B) on pain relief</li>
+                <li><b>Teaching methods and class size:</b> Compare 2 teaching methods (Factor A) in small vs large classes (Factor B) on test scores</li>
+                <li><b>Fertilizer and plant variety:</b> Test 3 fertilizers (Factor A) on 2 plant varieties (Factor B) measuring growth</li>
+                <li><b>Exercise and diet:</b> Compare 2 exercise programs (Factor A) with 3 diet types (Factor B) on weight loss</li>
+            </ul>
+            
+            <p><b>Analysis results:</b></p>
+            <ul>
+                <li><b>Main effect of Factor A:</b> Do levels of Factor A differ when averaging across Factor B?</li>
+                <li><b>Main effect of Factor B:</b> Do levels of Factor B differ when averaging across Factor A?</li>
+                <li><b>Interaction effect:</b> Does the effect of Factor A depend on the level of Factor B?</li>
+            </ul>
+            
+            <p><b>Design considerations:</b> Requires larger sample sizes, each cell should have equal sample sizes when possible</p>
+            
+            <hr>
+        """)
+        
+        layout.addWidget(browser)
+        
+        btn = QPushButton("OK")
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn)
+        
+        dlg.exec_()
     
     def run_multi_dataset_analysis(self):
         """Runs separate analyses for multiple datasets, 
