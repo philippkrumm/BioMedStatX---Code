@@ -24,6 +24,20 @@ from decisiontreevisualizer import DecisionTreeVisualizer
 # --------------------------------------------------------------
 from PyQt5.QtWidgets import QApplication
 import sys as _sys
+import time
+from contextlib import contextmanager
+
+@contextmanager
+def working_directory(path):
+    """Context manager for safely changing directories"""
+    previous_dir = os.getcwd()
+    try:
+        os.chdir(path)
+        yield
+    finally:
+        os.chdir(previous_dir)
+
+print(f"DEBUG: RUNNING FILE VERSION FROM {time.time()} - {os.path.abspath(__file__)}")
 
 _QT_APP = QApplication.instance()
 if _QT_APP is None:
@@ -2361,6 +2375,7 @@ class StatisticalTester:
 
                 # Excel export
                 if not skip_excel:
+                    print(f"DEBUG: Current working directory before export: {os.getcwd()}")
                     excel_file = file_name if file_name else get_output_path(f"{test}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "xlsx")
                     print("DEBUG: Results dict before Excel export:", res)  # <--- Add this line
                     ResultsExporter.export_results_to_excel(res, excel_file, res.get("analysis_log", None))
@@ -2390,6 +2405,7 @@ class StatisticalTester:
                 
                 # Generate analysis log for the information message
                 if not skip_excel:
+                    print(f"DEBUG: Directory before Excel export: {os.getcwd()}")
                     analysis_log = []
                     analysis_log.append(f"Advanced Test Analysis: {test}")
                     analysis_log.append(f"Dataset: {dv}")
@@ -4166,18 +4182,20 @@ class DataVisualizer:
                  spine_style='default', background_color='white',
                  figure_face_color='white',
                  
-                 # Output options
+                  # Output options
                  save_plot=True, file_formats=['pdf', 'svg'], 
                  file_name=None, group_order=None,
                  
                  # Statistical data
                  compare=None, test_recommendation="parametric",
                  pairwise_results=None,
+
+                 error_style="caps",     # "caps" (Whisker-Caps), "line" (nur Strich)
                  
                  # Advanced customization
                  custom_annotations=None, watermark=None,
                  subplot_margins=None, tight_layout=True):
-       
+      
         # Apply theme
         if theme in DataVisualizer.THEMES:
             theme_config = DataVisualizer.THEMES[theme]
@@ -4212,12 +4230,20 @@ class DataVisualizer:
         plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
         df = pd.DataFrame(plot_data)
         
+        # Fehler-Balken-Style vorbereiten
+        if error_style == "caps":
+            capsize_val = capsize   # wie bisher, zeigt whisker-caps
+        elif error_style == "line":
+            capsize_val = 0         # keine Caps, nur durchgezogene Linie
+        else:
+            raise ValueError(f"Unbekannter error_style: {error_style}")
+
         # Create bar plot
         if show_error_bars:
             bars = sns.barplot(
                 x='Group', y='Value', data=df, ax=ax,
                 errorbar=error_type, palette=colors, 
-                capsize=capsize, alpha=alpha,
+                capsize=capsize_val, alpha=alpha,
                 order=groups, width=bar_width,
                 edgecolor=bar_edge_color, linewidth=bar_edge_width
             )
@@ -4409,6 +4435,7 @@ class DataVisualizer:
         show_points=True, point_style='jitter', max_points_per_group=None,
         point_size=40, point_alpha=0.8, point_edge_width=0.5,
         jitter_strength=0.3, strip_dodge=False,
+        show_error_bars=True, error_type="sd", capsize=0.05,
         show_significance_letters=True, significance_height_offset=0.05, significance_font_size=12,
         x_label=None, y_label=None, title=None,
         x_label_size=12, y_label_size=12, title_size=14,
@@ -4419,14 +4446,14 @@ class DataVisualizer:
         legend_bbox=(1.15, 1), legend_fontsize=9,
         legend_title="Samples", legend_title_size=12,
         spine_style='default', background_color='white',
-        figure_face_color='white',
+        figure_face_color='white', error_style="caps", 
         save_plot=True, file_formats=['pdf', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True
     ):
-        """Creates a box plot with extensive customization options."""
+
         import seaborn as sns
         import matplotlib.pyplot as plt
         import pandas as pd
@@ -4460,6 +4487,20 @@ class DataVisualizer:
             palette=colors, order=groups, width=box_width,
             linewidth=edge_width, fliersize=0, boxprops=dict(alpha=alpha)
         )
+        if show_error_bars:
+            import numpy as np
+            means = [np.mean(samples[g]) for g in groups]
+            if error_type == "sd":
+                errs = [np.std(samples[g], ddof=1) for g in groups]
+            else:  # "se"
+                errs = [np.std(samples[g], ddof=1)/np.sqrt(len(samples[g])) for g in groups]
+            xs = range(len(groups))
+            eb_caps = capsize if error_style == "caps" else 0
+            ax.errorbar(xs, means, yerr=errs,
+                        fmt='none',
+                        color='black',
+                        elinewidth=edge_width,
+                        capsize=eb_caps)
 
         if show_points:
             DataVisualizer._add_data_points(
@@ -4736,6 +4777,29 @@ class DataVisualizer:
                 va=annotation.get('va', 'center'),
                 arrowprops=annotation.get('arrowprops', None)
             )
+
+    @staticmethod
+    def _add_legend(ax, samples, groups, legend_position, legend_bbox,
+                    legend_fontsize, legend_title, legend_title_size):
+        """
+        Adds a legend to the plot.
+        """
+        handles, labels = ax.get_legend_handles_labels()
+        if not handles:
+            # Create dummy handles if none exist
+            import matplotlib.patches as mpatches
+            handles = [mpatches.Patch(label=str(g)) for g in groups]
+            labels = [str(g) for g in groups]
+        legend = ax.legend(
+            handles, labels,
+            loc=legend_position,
+            bbox_to_anchor=legend_bbox,
+            fontsize=legend_fontsize,
+            title=legend_title,
+            title_fontsize=legend_title_size,
+            frameon=False
+        )
+        return legend
     
     @staticmethod
     def _add_watermark(fig, watermark_text):
@@ -4746,23 +4810,40 @@ class DataVisualizer:
     
     @staticmethod
     def _save_plot(fig, file_name, groups, formats, dpi):
-        """Save plot in multiple formats"""
+        """Save plot in multiple formats with absolute paths"""
+        print(f"DEBUG PLOT: _save_plot called")
+        print(f"DEBUG PLOT: Current working directory: {os.getcwd()}")
+        print(f"DEBUG PLOT: file_name = {file_name}")
+        print(f"DEBUG PLOT: formats = {formats}")
+        
         if file_name is None:
             file_name = "_".join(map(str, groups))
+            print(f"DEBUG PLOT: Generated file_name = {file_name}")
+        
+        # Store original directory
+        original_dir = os.getcwd()
         
         for fmt in formats:
             if fmt == 'pdf':
                 pdf_path = get_output_path(file_name, "pdf")
+                print(f"DEBUG: Attempting to save PDF to: {pdf_path}")
                 fig.savefig(pdf_path, dpi=dpi, bbox_inches='tight', format='pdf')
+                print(f"DEBUG: PDF file exists after save: {os.path.exists(pdf_path)}")
             elif fmt == 'svg':
                 svg_path = get_output_path(file_name, "svg")
+                print(f"DEBUG: Attempting to save SVG to: {svg_path}")
                 fig.savefig(svg_path, bbox_inches='tight', format='svg')
+                print(f"DEBUG: SVG file exists after save: {os.path.exists(svg_path)}")
             elif fmt == 'png':
                 png_path = get_output_path(file_name, "png")
+                print(f"DEBUG: Attempting to save PNG to: {png_path}")
                 fig.savefig(png_path, dpi=dpi, bbox_inches='tight', format='png')
-            elif fmt == 'eps':
-                eps_path = get_output_path(file_name, "eps")
-                fig.savefig(eps_path, dpi=dpi, bbox_inches='tight', format='eps')
+                print(f"DEBUG: PNG file exists after save: {os.path.exists(png_path)}")
+        
+        # Restore original directory if it changed
+        if os.getcwd() != original_dir:
+            os.chdir(original_dir)
+            print(f"DEBUG PLOT: Restored original directory: {original_dir}")
     
     @staticmethod
     def get_significance_letters(samples, groups, test_recommendation="parametric", alpha=0.05):
@@ -4873,14 +4954,280 @@ class DataVisualizer:
                                 edgecolor="gray",
                                 alpha=0.8))
         except Exception as e:
-            print(f"Error adding significance letters: {str(e)}")    
-    
+            print(f"Error adding significance letters: {str(e)}")
+
+    @staticmethod
+    def set_global_font(family="Arial", main_text_family="Times New Roman", use_latex=False):
+        """
+        Set global font for all plots. Optionally enable LaTeX rendering.
+        """
+        import matplotlib
+        import matplotlib.pyplot as plt
+        if use_latex:
+            plt.rcParams['text.usetex'] = True
+            plt.rcParams['font.family'] = 'serif'
+            plt.rcParams['font.serif'] = [main_text_family]
+        else:
+            plt.rcParams['font.family'] = family
+            plt.rcParams['axes.labelweight'] = 'bold'
+            plt.rcParams['axes.titlesize'] = 12
+            plt.rcParams['axes.labelsize'] = 9
+            plt.rcParams['xtick.labelsize'] = 7
+            plt.rcParams['ytick.labelsize'] = 7
+
+    @staticmethod
+    def apply_custom_colormap(ax, groups, colormap="gray", accent="#0072B2", accent_idx=0, greyscale=True, user_colors=None):
+        """
+        Apply a two-tone or accent color scheme to bars/boxes/violins.
+        """
+        import matplotlib.cm as cm
+        import matplotlib.colors as mcolors
+        n = len(groups)
+        if user_colors:
+            colors = user_colors
+        elif greyscale:
+            colors = [str(0.2 + 0.6*i/(n-1)) for i in range(n)]
+            if accent:
+                colors[accent_idx % n] = accent
+        else:
+            cmap = cm.get_cmap(colormap, n)
+            colors = [mcolors.to_hex(cmap(i)) for i in range(n)]
+        for i, patch in enumerate(ax.patches):
+            patch.set_facecolor(colors[i % n])
+        return colors
+
+    @staticmethod
+    def add_panel_labels(fig, axes, labels=None, fontdict=None, x=0.01, y=0.98):
+        """
+        Add bold panel labels (A, B, C, ...) to each subplot.
+        """
+        import string
+        if not isinstance(axes, (list, tuple, np.ndarray)):
+            axes = [axes]
+        if labels is None:
+            labels = list(string.ascii_uppercase)
+        for i, ax in enumerate(axes):
+            ax.text(x, y, labels[i], transform=ax.transAxes,
+                    fontsize=10, fontweight='bold', va='top', ha='left',
+                    fontdict=fontdict if fontdict else None)
+
+    @staticmethod
+    def annotate_bar_values(ax, bars, values, errors=None, fmt="{:.2f}", font_size=6, y_offset=0.01, error_fmt="±{:.2f}"):
+        """
+        Annotate mean±SEM or other values above bars.
+        """
+        for bar, val, err in zip(bars, values, errors if errors is not None else [None]*len(values)):
+            height = bar.get_height()
+            label = fmt.format(val)
+            if err is not None:
+                label += error_fmt.format(err)
+            ax.text(bar.get_x() + bar.get_width()/2, height + y_offset*height, label,
+                    ha='center', va='bottom', fontsize=font_size, color='black')
+
+    @staticmethod
+    def annotate_box_medians(ax, boxplot, medians, fmt="{:.2f}", font_size=6, y_offset=0.01):
+        """
+        Annotate median values above boxplots.
+        """
+        for median_line, val in zip(boxplot['medians'], medians):
+            x = median_line.get_xdata().mean()
+            y = median_line.get_ydata().mean()
+            ax.text(x, y + y_offset*abs(y), fmt.format(val),
+                    ha='center', va='bottom', fontsize=font_size, color='black')
+
+    @staticmethod
+    def add_reference_line(ax, y=0, style='--', color='grey', linewidth=0.7, alpha=0.5, label=None):
+        """
+        Add a horizontal reference line (e.g., baseline).
+        """
+        ax.axhline(y, linestyle=style, color=color, linewidth=linewidth, alpha=alpha, label=label)
+
+    @staticmethod
+    def add_inset_axes(ax, bounds=[0.6, 0.6, 0.35, 0.35], zoom_xlim=None, zoom_ylim=None, plot_func=None, **plot_kwargs):
+        """
+        Add an inset axes for zoomed-in region or sub-distribution.
+        """
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        inset_ax = inset_axes(ax, width="35%", height="35%", loc='upper right', bbox_to_anchor=bounds, bbox_transform=ax.transAxes)
+        if plot_func:
+            plot_func(inset_ax, **plot_kwargs)
+        if zoom_xlim:
+            inset_ax.set_xlim(*zoom_xlim)
+        if zoom_ylim:
+            inset_ax.set_ylim(*zoom_ylim)
+        return inset_ax
+
+    @staticmethod
+    def set_axis_linewidths(ax, width=0.7):
+        """
+        Set axes and box/violin/bar outlines to a specific line width.
+        """
+        for spine in ax.spines.values():
+            spine.set_linewidth(width)
+        for line in ax.get_lines():
+            line.set_linewidth(width)
+        for patch in getattr(ax, 'patches', []):
+            patch.set_linewidth(width)
+
+    @staticmethod
+    def set_grid_style(ax, which='major', axis='y', color='#cccccc', alpha=0.15, linewidth=0.5):
+        """
+        Set grid lines to light grey or only horizontal minor grid lines.
+        """
+        ax.grid(True, which=which, axis=axis, color=color, alpha=alpha, linewidth=linewidth)
+
+    @staticmethod
+    def set_minor_ticks(ax, x_minor=True, y_minor=True, x_locator=None, y_locator=None, inward=False):
+        """
+        Enable minor ticks and custom locators.
+        """
+        import matplotlib.ticker as mticker
+        if x_minor:
+            ax.xaxis.set_minor_locator(x_locator or mticker.AutoMinorLocator())
+        if y_minor:
+            ax.yaxis.set_minor_locator(y_locator or mticker.AutoMinorLocator())
+        if inward:
+            ax.tick_params(axis='both', which='both', direction='in', length=3)
+
+    @staticmethod
+    def set_tick_format(ax, axis='y', style='si'):
+        """
+        Custom tick formatting: SI prefixes, percentages, currency, etc.
+        """
+        import matplotlib.ticker as mticker
+        if style == 'si':
+            ax.yaxis.set_major_formatter(mticker.EngFormatter())
+        elif style == 'percent':
+            ax.yaxis.set_major_formatter(mticker.PercentFormatter())
+        elif style == 'currency':
+            ax.yaxis.set_major_formatter(mticker.StrMethodFormatter('${x:,.0f}'))
+        # Add more as needed
+
+    @staticmethod
+    def add_stat_bracket(ax, x1, x2, y, text, height=0.02, linewidth=0.7, fontsize=8, color='black'):
+        """
+        Draw a single-line significance bracket with centered text (e.g., *, **, a, b).
+        """
+        ax.plot([x1, x1, x2, x2], [y, y+height, y+height, y], lw=linewidth, c=color, clip_on=False)
+        ax.text((x1+x2)/2, y+height, text, ha='center', va='bottom', color=color, fontsize=fontsize, fontweight='bold')
+
+    @staticmethod
+    def add_letter_grouping(ax, groups, letters, y_positions, font_size=8, box_color="#eeeeee", text_color="grey", pad=0.01):
+        """
+        Add small grey boxes with letter groupings above bars/boxes.
+        """
+        for i, group in enumerate(groups):
+            ax.text(i, y_positions[i]+pad, letters[group],
+                    ha='center', va='bottom', fontsize=font_size,
+                    color=text_color, bbox=dict(boxstyle="round,pad=0.2", fc=box_color, ec='none', alpha=0.8))
+
+    @staticmethod
+    def set_opacity_gradient(ax, base_alpha=0.8, fade_to=0.3):
+        """
+        Fade earlier bars/violins/boxes to show density/focus.
+        """
+        patches = getattr(ax, 'patches', [])
+        n = len(patches)
+        for i, patch in enumerate(patches):
+            alpha = base_alpha - (base_alpha-fade_to)*i/(n-1) if n > 1 else base_alpha
+            patch.set_alpha(alpha)
+
+    @staticmethod
+    def set_panel_background(ax, motif="striped", color1="#ffffff", color2="#f7f7f7"):
+        """
+        Add alternating-row background shading.
+        """
+        ylim = ax.get_ylim()
+        for i in range(int(ylim[0]), int(ylim[1]), 2):
+            ax.axhspan(i, i+1, facecolor=color2, alpha=0.3, zorder=0)
+
+    @staticmethod
+    def set_aspect_ratio(ax, ratio=1.0):
+        """
+        Set custom aspect ratio (height/width).
+        """
+        ax.set_aspect(ratio)
+
+    @staticmethod
+    def set_log_axis(ax, axis='y', base=10, symlog=False, linthresh=1):
+        """
+        Set log or symlog scaling on an axis.
+        """
+        if symlog:
+            if axis == 'y':
+                ax.set_yscale('symlog', linthresh=linthresh)
+            else:
+                ax.set_xscale('symlog', linthresh=linthresh)
+        else:
+            if axis == 'y':
+                ax.set_yscale('log', base=base)
+            else:
+                ax.set_xscale('log', base=base)
+
+    @staticmethod
+    def add_secondary_axis(ax, which='y', label=None, func=None, inv_func=None):
+        """
+        Add a secondary y-axis (or x-axis) for e.g. percentages.
+        """
+        if which == 'y':
+            secax = ax.secondary_yaxis('right', functions=(func, inv_func) if func and inv_func else None)
+            if label:
+                secax.set_ylabel(label)
+            return secax
+        else:
+            secax = ax.secondary_xaxis('top', functions=(func, inv_func) if func and inv_func else None)
+            if label:
+                secax.set_xlabel(label)
+            return secax
+
+    @staticmethod
+    def add_broken_axis(ax, break_y, gap=0.02):
+        """
+        Simple broken y-axis: add a zigzag or break mark at break_y.
+        """
+        ylim = ax.get_ylim()
+        ax.plot([-.1, .1], [break_y-gap, break_y+gap], color='k', lw=1, transform=ax.get_yaxis_transform(), clip_on=False)
+
+    @staticmethod
+    def export_with_metadata(fig, filename, metadata=None, embed_fonts=True, dpi=300, filetype="pdf"):
+        """
+        Save figure with embedded fonts and metadata (PDF/SVG).
+        """
+        from matplotlib import font_manager
+        import matplotlib.pyplot as plt
+        if embed_fonts and filetype in ["pdf", "svg"]:
+            plt.rcParams['pdf.fonttype'] = 42
+            plt.rcParams['svg.fonttype'] = 'none'
+        if metadata is None:
+            metadata = {}
+        metadata.setdefault("Creator", "DataVisualizer")
+        metadata.setdefault("Title", filename)
+        metadata.setdefault("Description", "Generated by DataVisualizer")
+        fig.savefig(filename, dpi=dpi, bbox_inches='tight', metadata=metadata)
+
+    @staticmethod
+    def add_metadata_block(fig, params, version="1.0", date=None):
+        """
+        Add a tiny text block with version, date, and parameters to the PDF/SVG.
+        """
+        import datetime
+        if date is None:
+            date = datetime.datetime.now().strftime("%Y-%m-%d")
+        meta_text = f"DataVisualizer v{version} | {date}\nParams: {params}"
+        fig.text(0.01, 0.01, meta_text, fontsize=4, color='gray', ha='left', va='bottom', alpha=0.7)    
+            
+        
+import xlsxwriter
+import copy
 class ResultsExporter:
     _temp_files = set()
     @staticmethod
     def export_results_to_excel(results, output_file, analysis_log=None):
-        import xlsxwriter
-        import copy
+        print(f"DEBUG: Current working directory before export: {os.getcwd()}")
+        original_dir = os.getcwd()
+        
+        # Use absolute path for output file
+        output_file = os.path.abspath(output_file)
         
         # Create a deep copy to prevent modifications during processing
         results_copy = copy.deepcopy(results)
@@ -4912,6 +5259,8 @@ class ResultsExporter:
             ResultsExporter._write_analysislog_sheet(workbook, analysis_log, fmt)
             
         workbook.close()
+        print(f"DEBUG: Excel export attempted to: {output_file}")
+        print(f"DEBUG: Excel file exists after export: {os.path.exists(output_file)}")
 
         # Clean up all temporary decision tree files
         for dataset_name, tree_path in dataset_tree_paths.items():
@@ -4936,6 +5285,7 @@ class ResultsExporter:
 
     @staticmethod
     def export_multi_dataset_results(all_results, excel_path):
+        print(f"DEBUG: Current working directory before export: {os.getcwd()}")
         print(f"DEBUG MULTI: export_multi_dataset_results called with excel_path='{excel_path}'")
         print("DEBUG MULTI: Received all_results with contents:")   
         for ds_name, results in all_results.items():
@@ -6808,6 +7158,12 @@ class AnalysisManager:
                 save_plot=True, skip_plots=False, error_type="sd", skip_excel=False, 
                 dataset_name=None, additional_factors=None, show_individual_lines=True, 
                 **kwargs):
+        
+        print("DEBUG ANALYZE: AnalysisManager.analyze called")
+        print(f"DEBUG ANALYZE: Current working directory: {os.getcwd()}")
+        print(f"DEBUG ANALYZE: file_path = {file_path}")
+        print(f"DEBUG ANALYZE: file_name = {file_name}")
+        print(f"DEBUG ANALYZE: save_plot = {save_plot}, skip_plots = {skip_plots}, skip_excel = {skip_excel}")
         """
         Performs analysis on one or multiple datasets.
 
@@ -7122,8 +7478,36 @@ class AnalysisManager:
                 
                 # Handle Excel export if needed
                 if not skip_excel:
-                    from stats_functions import ResultsExporter
-                    ResultsExporter.export_results_to_excel(results, excel_file)
+                    print(f"DEBUG EXCEL: About to export Excel file")
+                    print(f"DEBUG EXCEL: Current working directory: {os.getcwd()}")
+                    
+                    # Store original directory
+                    original_dir = os.getcwd()
+                    
+                    # Generate excel file path using absolute path
+                    dataset_str = f"{dataset_name}_" if dataset_name else ""
+                    file_base = f"{dataset_str}{file_name}" if file_name else f"{groups[0]}_vs_{groups[1]}"
+                    excel_file = get_output_path(file_base, "xlsx")
+                    print(f"DEBUG EXCEL: Will save to: {excel_file}")
+                    
+                    # Export only once
+                    ResultsExporter.export_results_to_excel(results, excel_file, analysis_log)
+                    print(f"DEBUG EXCEL: Export completed, file exists: {os.path.exists(excel_file)}")
+                    
+                    # Update analysis log with the absolute path
+                    if os.path.exists(excel_file):
+                        analysis_log += f"\nResults were saved to {excel_file}.\n"
+                        # Store the path in results for later reference
+                        results["excel_output_path"] = excel_file
+                    else:
+                        error_msg = f"Failed to create Excel file at: {excel_file}"
+                        analysis_log += f"\nERROR: {error_msg}\n"
+                        print(f"ERROR: {error_msg}")
+                        
+                    # Ensure we're back in the original directory
+                    if os.getcwd() != original_dir:
+                        os.chdir(original_dir)
+                        print(f"DEBUG: Restored original directory: {original_dir}")
             
             elif kwargs.get('test') == 'nonparametric_mixed_anova':
                 # DISABLED: Nonparametric fallbacks are not yet supported
@@ -7346,11 +7730,23 @@ class AnalysisManager:
                 
             # Export to Excel
             if not skip_excel:
+                original_dir = os.getcwd()
+                print(f"DEBUG: Directory before Excel export: {original_dir}")
+                
+                # Use absolute path for Excel file
+                excel_file = get_output_path(file_base, "xlsx") 
+                
                 ResultsExporter.export_results_to_excel(results, excel_file, analysis_log)
                 analysis_log += f"\nResults were saved to {excel_file}.\n"
+                
+                # Ensure we're back in the original directory
+                if os.getcwd() != original_dir:
+                    os.chdir(original_dir)
+                    print(f"DEBUG: Restored original directory: {original_dir}")
 
             # Create the plot, if not skipped
             if not skip_plots:
+                print(f"DEBUG: Current working directory before export: {os.getcwd()}")
                 pairwise_comparisons = results.get('pairwise_comparisons', None)
                 fig, ax = DataVisualizer.plot_bar(groups, filtered_samples, width=width, height=height, 
                                                   colors=colors, hatches=hatches, compare=compare, 
@@ -7499,11 +7895,16 @@ class AnalysisManager:
             return {"error": error_message, "analysis_log": analysis_log}       
 
 def get_output_path(file_base, ext):
+    """Get an absolute path to save output files on desktop."""
     desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
     if not os.path.isdir(desktop_path):
         # Fallback: current working directory
         desktop_path = os.getcwd()
-    return os.path.join(desktop_path, f"{file_base}.{ext}")
+    
+    out_path = os.path.join(desktop_path, f"{file_base}.{ext}")
+    abs_path = os.path.abspath(out_path)
+    print(f"DEBUG: get_output_path returns absolute path: {abs_path}")
+    return abs_path
 
 try:
     _QT_APP.exit()
@@ -7875,7 +8276,13 @@ class OutlierDetector:
         self.debug_log.append(f"Output path: {output_path}")
         self.debug_log.append(f"Active test: {self.active_test}")
         
-        temp_file = None
+        # Store the original path - it's crucial to use absolute paths
+        output_path = os.path.abspath(output_path)
+        self.debug_log.append(f"Absolute output path: {output_path}")
+        
+        # Store original directory but don't change it
+        original_cwd = os.getcwd()
+        self.debug_log.append(f"Current working directory: {original_cwd}")
         
         try:
             if self.active_test == 'Grubbs':
@@ -7892,13 +8299,15 @@ class OutlierDetector:
                 # Create a backup of the original file with a timestamp
                 from datetime import datetime
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = f"{os.path.splitext(output_path)[0]}_{timestamp}_backup.xlsx"
+                output_dir = os.path.dirname(output_path)
+                base_name = os.path.splitext(os.path.basename(output_path))[0]
+                backup_path = os.path.join(output_dir, f"{base_name}_{timestamp}_backup.xlsx")
                 import shutil
                 shutil.copy2(output_path, backup_path)
                 self.debug_log.append(f"Created backup of existing file at: {backup_path}")
                 
                 # Create a new file with a different name for our results
-                results_path = f"{os.path.splitext(output_path)[0]}_outliers.xlsx"
+                results_path = os.path.join(output_dir, f"{base_name}_outliers.xlsx")
                 self.debug_log.append(f"Creating new results file at: {results_path}")
             else:
                 # Just use the original path if the file doesn't exist
@@ -8072,7 +8481,7 @@ class OutlierDetector:
             # Add visualization
             temp_file = self._add_single_visualization_sheet(wb, self)
             
-            # Save the new workbook
+            # Save the new workbook - Make sure to use the absolute path
             wb.save(results_path)
             self.debug_log.append(f"Results saved to: {results_path}")
             
@@ -8088,13 +8497,6 @@ class OutlierDetector:
             self.debug_log.append(f"ERROR: {error_msg}")
             print(f"ERROR: {error_msg}")
             raise
-        finally:
-            # Clean up temporary files
-            if temp_file and os.path.exists(temp_file):
-                try:
-                    os.remove(temp_file)
-                except:
-                    pass  # Ignore cleanup errors
 
     def get_summary(self):
         """
@@ -8165,6 +8567,7 @@ class OutlierDetector:
         """
         Run outlier detection on multiple datasets (columns) and create a combined Excel output.
         """
+        print(f"DEBUG: Current working directory before export: {os.getcwd()}")
         print(f"DEBUG: Starting multi-dataset outlier detection")
         print(f"DEBUG: Datasets to analyze: {dataset_columns}")
         print(f"DEBUG: Group column: {group_col}")

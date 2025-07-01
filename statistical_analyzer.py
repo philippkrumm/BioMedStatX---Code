@@ -4,16 +4,16 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from readchar import config
 import seaborn as sns
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QFileDialog, QWidget, QVBoxLayout,
                            QHBoxLayout, QLabel, QComboBox, QPushButton, QListWidget, 
                            QTabWidget, QGroupBox, QCheckBox, QSpinBox, QColorDialog, 
                            QMessageBox, QScrollArea, QListWidgetItem, QDialog, QDialogButtonBox,
-                           QGridLayout, QLineEdit, QRadioButton, QAction, QFormLayout, QAbstractItemView, QDoubleSpinBox)
+                           QGridLayout, QLineEdit, QRadioButton, QAction, QFormLayout, QAbstractItemView, QDoubleSpinBox, QButtonGroup)
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtCore import Qt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+
 # DISABLED: Nonparametric fallbacks are not yet supported
 # from nonparametricanovas import NonParametricFactory, NonParametricRMANOVA
 # New class imports:
@@ -22,8 +22,9 @@ from stats_functions import (
     UIDialogManager, OutlierDetector, OUTLIER_IMPORTS_AVAILABLE
 )
 import traceback
+print(f"DEBUG: RUNNING FILE VERSION FROM {time.time()} - {os.path.abspath(__file__)}")
 
-DEFAULT_COLORS = ['#3357FF', '#FF5733', '#33FF57', '#F033FF', '#FF3366', '#33FFEC']
+DEFAULT_COLORS = ['#222222', '#555555', '#888888', '#BBBBBB', '#DDDDDD', '#EEEEEE']
 DEFAULT_HATCHES = ['/', '\\', '|', '-', '+', 'x', 'o', '.', '*', '']
 
 def dict_to_long_format(samples, groups):
@@ -601,78 +602,6 @@ class PlotConfigDialog(QDialog):
         
         layout.addWidget(title_group)
         
-        # Plot dimensions
-        dim_group = QGroupBox("Plot Dimensions")
-        dim_group.setObjectName("grpPlotDimensions")
-        dim_layout = QHBoxLayout(dim_group)
-        dim_layout.setObjectName("lyoPlotDimensions")
-        
-        width_label = QLabel("Width:")
-        width_label.setObjectName("lblWidth")
-        dim_layout.addWidget(width_label)
-        self.width_spin = QSpinBox()
-        self.width_spin.setObjectName("spnWidth")
-        self.width_spin.setRange(4, 20)
-        self.width_spin.setValue(12)
-        dim_layout.addWidget(self.width_spin)
-        
-        height_label = QLabel("Height:")
-        height_label.setObjectName("lblHeight")
-        dim_layout.addWidget(height_label)
-        self.height_spin = QSpinBox()
-        self.height_spin.setObjectName("spnHeight")
-        self.height_spin.setRange(4, 20)
-        self.height_spin.setValue(10)
-        dim_layout.addWidget(self.height_spin)
-        
-        layout.addWidget(dim_group)
-        
-        # Color and hatch settings
-        appearance_group = QGroupBox("Column Design")
-        appearance_group.setObjectName("grpColumnAppearance")
-        appearance_layout = QGridLayout(appearance_group)
-        appearance_layout.setObjectName("lyoColumnAppearance")
-        
-        # Header
-        grp_header = QLabel("Group")
-        grp_header.setObjectName("lblGroupHeader")
-        appearance_layout.addWidget(grp_header, 0, 0)
-        color_header = QLabel("Color")
-        color_header.setObjectName("lblColorHeader")
-        appearance_layout.addWidget(color_header, 0, 1)
-        hatch_header = QLabel("Hatch")
-        hatch_header.setObjectName("lblHatchHeader")
-        appearance_layout.addWidget(hatch_header, 0, 2)
-        
-        self.color_buttons = {}
-        self.hatch_combos = {}
-        
-        for i, group in enumerate(groups):
-            # Group name
-            group_label = QLabel(str(group))
-            group_label.setObjectName(f"lblGroup_{str(group).replace(' ', '_')}")
-            appearance_layout.addWidget(group_label, i+1, 0)
-            
-            # Color selection
-            color = DEFAULT_COLORS[i % len(DEFAULT_COLORS)]
-            color_button = QPushButton()
-            color_button.setObjectName(f"btnColor_{str(group).replace(' ', '_')}")
-            color_button.setStyleSheet(f"background-color: {color};")
-            color_button.setFixedSize(30, 30)
-            color_button.clicked.connect(lambda checked, g=group: self.select_color(g))
-            self.color_buttons[group] = color_button
-            appearance_layout.addWidget(color_button, i+1, 1)
-            
-            # Hatch selection
-            hatch_combo = QComboBox()
-            hatch_combo.setObjectName(f"cboHatch_{str(group).replace(' ', '_')}")
-            hatch_combo.addItems(DEFAULT_HATCHES)
-            hatch_combo.setCurrentText(DEFAULT_HATCHES[i % len(DEFAULT_HATCHES)])
-            self.hatch_combos[group] = hatch_combo
-            appearance_layout.addWidget(hatch_combo, i+1, 2)
-        
-        layout.addWidget(appearance_group)
-        
         # Statistical options
         stats_group = QGroupBox("Statistical Options")
         stats_group.setObjectName("grpStatOptions")
@@ -686,7 +615,7 @@ class PlotConfigDialog(QDialog):
         dependent_layout.addWidget(self.dependent_check)
 
         # --- Gruppenreihenfolge (Drag & Drop) ---
-        order_group = QGroupBox("Gruppenreihenfolge (Ziehen zum Sortieren)")
+        order_group = QGroupBox("Group order (drag to sort)")
         order_layout = QVBoxLayout(order_group)
         self.order_list = QListWidget()
         self.order_list.setDragDropMode(QListWidget.InternalMove)
@@ -748,28 +677,21 @@ class PlotConfigDialog(QDialog):
         self.dependent_data_options.setVisible(False)
         stats_layout.addWidget(self.dependent_data_options)
         
-        # Error bar type
-        error_bar_layout = QHBoxLayout()
-        error_bar_layout.setObjectName("lyoErrorBarType")
-        error_bar_label = QLabel("Error bar type:")
-        error_bar_label.setObjectName("lblErrorBarType")
-        error_bar_layout.addWidget(error_bar_label)
-
-        self.error_type_sd = QRadioButton("Standard deviation (SD)")
-        self.error_type_sd.setObjectName("radErrorTypeSD")
-        self.error_type_sd.setChecked(True)
-        self.error_type_sem = QRadioButton("Standard error (SEM)")
-        self.error_type_sem.setObjectName("radErrorTypeSEM")
-        
-        error_bar_layout.addWidget(self.error_type_sd)
-        error_bar_layout.addWidget(self.error_type_sem)
-        stats_layout.addLayout(error_bar_layout)
-        
-        # Options to create or skip plots
+        # right after you’ve created your create_plot_check…
         self.create_plot_check = QCheckBox("Create plot")
         self.create_plot_check.setObjectName("chkCreatePlot")
         self.create_plot_check.setChecked(False)
         stats_layout.addWidget(self.create_plot_check)
+
+        # add your new button, hidden by default:
+        self.appearance_btn = QPushButton("Configure appearance…")
+        self.appearance_btn.setObjectName("btnConfigureAppearance")
+        self.appearance_btn.hide()
+        self.appearance_btn.clicked.connect(self.open_appearance_dialog)
+        stats_layout.addWidget(self.appearance_btn)
+
+        # wire it up so it only shows when create_plot is checked
+        self.create_plot_check.toggled.connect(self.appearance_btn.setVisible)
         
         # List of comparisons
         comparisons_label = QLabel("Specific comparisons:")
@@ -812,6 +734,19 @@ class PlotConfigDialog(QDialog):
         """Show or hide dependent options (visualization + data selection)."""
         self.dependent_visualization_options.setVisible(checked)
         self.dependent_data_options.setVisible(checked)
+
+    def open_appearance_dialog(self):
+        # Get the ordered groups from the list widget instead of using self.groups
+        ordered_groups = [self.order_list.item(i).text() for i in range(self.order_list.count())]
+        
+        dlg = PlotAestheticsDialog(
+            ordered_groups,  # Pass ordered groups instead of self.groups
+            self.parent().samples if hasattr(self.parent(), "samples") else {},
+            config=getattr(self, 'appearance_settings', None),
+            parent=self
+        )
+        if dlg.exec_() == QDialog.Accepted:
+            self.appearance_settings = dlg.get_config()
             
     def show_dependent_help(self):
         QMessageBox.information(
@@ -890,27 +825,11 @@ class PlotConfigDialog(QDialog):
             return None
         try:
             colors_dict = {}
-            for g in self.groups:
-                if g in self.color_buttons:
-                    try:
-                        # Try to extract color from stylesheet (safer)
-                        style = self.color_buttons[g].styleSheet()
-                        if "background-color:" in style:
-                            color = style.split("background-color:")[1].split(";")[0].strip()
-                            colors_dict[g] = color
-                        else:
-                            colors_dict[g] = DEFAULT_COLORS[0]  # Fallback
-                    except Exception:
-                        colors_dict[g] = DEFAULT_COLORS[0]  # Second fallback
-                        
+            for i, g in enumerate(self.groups):
+                colors_dict[g] = DEFAULT_COLORS[i % len(DEFAULT_COLORS)]
             hatches_dict = {}
             for g in self.groups:
-                if g in self.hatch_combos:
-                    try:
-                        hatches_dict[g] = self.hatch_combos[g].currentText()
-                    except Exception:
-                        hatches_dict[g] = ""  # Fallback
-                    
+                hatches_dict[g] = ""  # Default: no hatch
             config = {
                 'title': self.title_edit.text() if self.title_edit.text() else None,
                 'x_label': self.x_label_edit.text() if self.x_label_edit.text() else None,
@@ -918,8 +837,8 @@ class PlotConfigDialog(QDialog):
                 'file_name': self.file_name_edit.text() if self.file_name_edit.text() else None,
                 'groups': [self.order_list.item(i).text() for i in range(self.order_list.count())],
                 'group_order': [self.order_list.item(i).text() for i in range(self.order_list.count())],
-                'width': self.width_spin.value(),
-                'height': self.height_spin.value(),
+                'width': 12,
+                'height': 10,
                 'colors': colors_dict,
                 'hatches': hatches_dict,
                 'create_plot': self.create_plot_check.isChecked(),
@@ -929,10 +848,11 @@ class PlotConfigDialog(QDialog):
                 'show_individual_lines': self.show_individual_lines.isChecked() if self.dependent_check.isChecked() else False,
                 'needs_subject_selection': self.dependent_check.isChecked()
             }
+            # Add appearance settings if present
+            if hasattr(self, 'appearance_settings'):
+                config['appearance_settings'] = self.appearance_settings
             return config
-        
         except Exception as e:
-            import traceback
             print(f"Error in get_config: {str(e)}")
             traceback.print_exc()
             # Return a minimal config to prevent crashes
@@ -942,6 +862,7 @@ class PlotConfigDialog(QDialog):
                 'title': None,
                 'x_label': None,
                 'y_label': None,
+                'file_name': None,
                 'width': 12,
                 'height': 10,
                 'colors': {g: DEFAULT_COLORS[i % len(DEFAULT_COLORS)] for i, g in enumerate(self.groups)},
@@ -957,6 +878,680 @@ class PlotConfigDialog(QDialog):
         self.comparisons = []
         self.comparisons_list.clear()
         
+class PlotAestheticsDialog(QDialog):
+    """
+    Dialog for plot appearance options, with more compact layout.
+    """
+    def __init__(self, groups, samples, config=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Plot Appearance & Preview")
+        self.resize(1600, 800)  # Adjusted size
+        self.groups = groups
+        self.samples = samples  # dict: group -> list of values
+        self.config = config or {}
+        self._init_ui()
+        self._apply_config()
+        self.update_preview()
+
+    def _init_ui(self):
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(4)  # Reduce spacing between elements
+        main_layout.setContentsMargins(6, 6, 6, 6)  # Reduce dialog margins
+
+        # --- Split the layout horizontally ---
+        top_layout = QHBoxLayout()
+        top_layout.setSpacing(4)  # Reduce spacing
+        main_layout.addLayout(top_layout, 2)  # 2/3 of space for top section
+
+        # --- Tabs ---
+        self.tabs = QTabWidget()
+        top_layout.addWidget(self.tabs)
+
+        # --- Preview panel (moved side-by-side) ---
+        preview_group = QGroupBox("Live Preview")
+        preview_layout = QVBoxLayout(preview_group)
+        preview_layout.setContentsMargins(4, 10, 4, 4)  # Tighter margins
+        self.figure = Figure(figsize=(6, 5), dpi=100)
+        self.canvas = FigureCanvas(self.figure)
+        preview_layout.addWidget(self.canvas)
+        top_layout.addWidget(preview_group)
+
+        # --- Tab 1: Size & Resolution ---
+        size_tab = QWidget()
+        size_layout = QGridLayout(size_tab)
+        size_layout.setVerticalSpacing(2)  # Reduce vertical spacing
+        size_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
+        
+        # NOW add the plot type combo box AFTER size_layout is created
+        self.plot_type_combo = QComboBox()
+        self.plot_type_combo.addItems(["Bar", "Box", "Violin", "Strip"])
+        size_layout.addWidget(QLabel("Plot type:"), 0, 0)
+        size_layout.addWidget(self.plot_type_combo, 0, 1)
+        self.plot_type_combo.currentIndexChanged.connect(self.update_preview)  
+        
+        self.width_spin = QSpinBox(); self.width_spin.setRange(4, 30); self.width_spin.setValue(12)
+        self.height_spin = QSpinBox(); self.height_spin.setRange(4, 30); self.height_spin.setValue(10)
+        self.dpi_spin = QSpinBox(); self.dpi_spin.setRange(72, 600); self.dpi_spin.setValue(300)
+        self.aspect_combo = QComboBox(); self.aspect_combo.addItems(["Auto", "Square (1:1)", "Golden ratio (~1.6:1)", "Custom"])
+        self.aspect_custom = QDoubleSpinBox(); self.aspect_custom.setRange(0.2, 5.0); self.aspect_custom.setSingleStep(0.1); self.aspect_custom.setValue(1.0); self.aspect_custom.setEnabled(False)
+        self.aspect_combo.currentIndexChanged.connect(lambda idx: self.aspect_custom.setEnabled(idx == 3))
+        
+        size_layout.addWidget(QLabel("Width:"), 1, 0); size_layout.addWidget(self.width_spin, 1, 1)
+        size_layout.addWidget(QLabel("Height:"), 2, 0); size_layout.addWidget(self.height_spin, 2, 1)
+        size_layout.addWidget(QLabel("DPI:"), 3, 0); size_layout.addWidget(self.dpi_spin, 3, 1)
+        size_layout.addWidget(QLabel("Aspect:"), 4, 0); size_layout.addWidget(self.aspect_combo, 4, 1)
+        size_layout.addWidget(self.aspect_custom, 4, 2)
+        self.tabs.addTab(size_tab, "Size")
+
+        # --- Tab 2: Typography & Labels ---
+        font_tab = QWidget()
+        font_layout = QGridLayout(font_tab)
+        font_layout.setVerticalSpacing(2)  # Reduce vertical spacing
+        font_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
+        
+        # Title controls
+        self.show_title_check = QCheckBox("Show title")
+        self.show_title_check.setChecked(True)
+        font_layout.addWidget(self.show_title_check, 0, 0, 1, 2)
+        
+        # Font selections
+        self.font_main = QComboBox(); self.font_main.addItems(["Arial", "Calibri", "Times New Roman", "Georgia"])
+        self.font_axis = QComboBox(); self.font_axis.addItems(["Arial", "Calibri", "Times New Roman", "Georgia"])
+        self.font_main.currentTextChanged.connect(self.update_preview)
+        self.font_axis.currentTextChanged.connect(self.update_preview)
+        
+        # Font sizes
+        self.fontsize_title = QSpinBox(); self.fontsize_title.setRange(6, 30); self.fontsize_title.setValue(12)
+        self.fontsize_axis = QSpinBox(); self.fontsize_axis.setRange(6, 20); self.fontsize_axis.setValue(9)
+        self.fontsize_ticks = QSpinBox(); self.fontsize_ticks.setRange(5, 16); self.fontsize_ticks.setValue(7)
+        self.fontsize_groupnames = QSpinBox(); self.fontsize_groupnames.setRange(5, 16); self.fontsize_groupnames.setValue(8)
+
+        font_layout.addWidget(QLabel("Title text:"), 1, 0); font_layout.addWidget(self.font_main, 1, 1)
+        font_layout.addWidget(QLabel("Axis font:"), 2, 0); font_layout.addWidget(self.font_axis, 2, 1)
+        font_layout.addWidget(QLabel("Title size:"), 1, 2); font_layout.addWidget(self.fontsize_title, 1, 3)
+        font_layout.addWidget(QLabel("Axis label size:"), 2, 2); font_layout.addWidget(self.fontsize_axis, 2, 3)
+        font_layout.addWidget(QLabel("Tick size:"), 3, 2); font_layout.addWidget(self.fontsize_ticks, 3, 3)
+        font_layout.addWidget(QLabel("Group names size:"), 4, 2); font_layout.addWidget(self.fontsize_groupnames, 4, 3)
+        
+        self.tabs.addTab(font_tab, "Typography")
+
+        # --- Tab 3: Colors & Patterns ---
+        color_tab = QWidget()
+        color_layout = QGridLayout(color_tab)
+        color_layout.setVerticalSpacing(2)  # Reduce vertical spacing
+        color_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
+        
+        self.color_buttons = {}
+        self.hatch_combos = {}
+        self.alpha_spin = QDoubleSpinBox(); self.alpha_spin.setRange(0.1, 1.0); self.alpha_spin.setSingleStep(0.05); self.alpha_spin.setValue(0.8)
+
+        # Add after self.alpha_spin in the Colors tab setup
+        self.bar_edge_color_btn = QPushButton()
+        self.bar_edge_color_btn.setFixedSize(30, 30)
+        self.bar_edge_color_btn.setStyleSheet("background-color: black;")
+        self.bar_edge_color_btn.clicked.connect(self.select_bar_edge_color)
+        color_layout.addWidget(QLabel("Bar border color:"), len(self.groups)+2, 0)
+        color_layout.addWidget(self.bar_edge_color_btn, len(self.groups)+2, 1)
+        
+        # Remove colormap dropdown as requested
+        color_layout.addWidget(QLabel("Group"), 0, 0)
+        color_layout.addWidget(QLabel("Color"), 0, 1)
+        color_layout.addWidget(QLabel("Pattern"), 0, 2)
+        
+        for i, group in enumerate(self.groups):
+            color_btn = QPushButton(); color_btn.setFixedSize(30, 30)
+            color_btn.setStyleSheet(f"background-color: {DEFAULT_COLORS[i % len(DEFAULT_COLORS)]};")
+            color_btn.clicked.connect(lambda _, g=group: self.select_color(g))
+            hatch_combo = QComboBox(); hatch_combo.addItems(DEFAULT_HATCHES)
+            self.color_buttons[group] = color_btn
+            self.hatch_combos[group] = hatch_combo
+            color_layout.addWidget(QLabel(str(group)), i+1, 0)
+            color_layout.addWidget(color_btn, i+1, 1)
+            color_layout.addWidget(hatch_combo, i+1, 2)
+        
+        # Keep transparency control but remove colormap
+        color_layout.addWidget(QLabel("Transparency:"), len(self.groups)+1, 0)
+        color_layout.addWidget(self.alpha_spin, len(self.groups)+1, 1)
+        self.tabs.addTab(color_tab, "Colors")
+
+        # --- Tab 4: Lines & Axes ---
+        line_tab = QWidget()
+        line_layout = QGridLayout(line_tab)
+        line_layout.setVerticalSpacing(2)  # Reduce vertical spacing
+        line_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
+        
+        # Line widths with separate controls
+        self.axis_linewidth_spin = QDoubleSpinBox(); self.axis_linewidth_spin.setRange(0.2, 3.0); self.axis_linewidth_spin.setValue(0.7)
+        self.bar_linewidth_spin = QDoubleSpinBox(); self.bar_linewidth_spin.setRange(0.2, 3.0); self.bar_linewidth_spin.setValue(1.0)
+        self.gridline_width_spin = QDoubleSpinBox(); self.gridline_width_spin.setRange(0.1, 2.0); self.gridline_width_spin.setValue(0.5)
+
+        # Checkboxes for grid and ticks
+        self.grid_check = QCheckBox("Show grid lines")
+        self.minor_tick_check = QCheckBox("Minor ticks")
+        self.logy_check = QCheckBox("Y-axis log")
+        self.logx_check = QCheckBox("X-axis log")
+        self.despine_check = QCheckBox("Remove top and right spines (despine)")
+        self.despine_check.setChecked(True)
+        
+        line_layout.addWidget(QLabel("Axis line width:"), 0, 0); line_layout.addWidget(self.axis_linewidth_spin, 0, 1)
+        line_layout.addWidget(QLabel("Bar border width:"), 1, 0); line_layout.addWidget(self.bar_linewidth_spin, 1, 1)
+        line_layout.addWidget(QLabel("Grid line width:"), 2, 0); line_layout.addWidget(self.gridline_width_spin, 2, 1)
+        line_layout.addWidget(self.grid_check, 3, 0)
+        line_layout.addWidget(self.minor_tick_check, 3, 1)
+        line_layout.addWidget(self.logy_check, 4, 0)
+        line_layout.addWidget(self.logx_check, 4, 1)
+        line_layout.addWidget(self.despine_check, 5, 0, 1, 2)
+        
+        self.tabs.addTab(line_tab, "Lines/Axes")
+
+        # --- Tab 5: Annotations ---
+        annot_tab = QWidget()
+        annot_layout = QGridLayout(annot_tab)
+        annot_layout.setVerticalSpacing(2)  # Reduce vertical spacing
+        annot_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
+        
+        self.refline_check = QCheckBox("Reference line (y=0)")
+        self.panel_label_check = QCheckBox("Panel labels (A, B, ...)")
+        self.value_annot_check = QCheckBox("Show values above bars")
+
+        error_bar_layout = QHBoxLayout()
+        error_bar_layout.setObjectName("lyoErrorBarType")
+        error_bar_label = QLabel("Error bar type:")
+        error_bar_label.setObjectName("lblErrorBarType")
+        error_bar_layout.addWidget(error_bar_label)
+
+        self.error_type_sd = QRadioButton("Standard deviation (SD)")
+        self.error_type_sd.setObjectName("radErrorTypeSD")
+        self.error_type_sd.setChecked(True)
+        self.error_type_sem = QRadioButton("Standard error (SEM)")
+        self.error_type_sem.setObjectName("radErrorTypeSEM")
+
+        # ButtonGroup for SD/SEM
+        self.error_type_group = QButtonGroup(self)
+        self.error_type_group.addButton(self.error_type_sd)
+        self.error_type_group.addButton(self.error_type_sem)
+        self.error_type_group.setExclusive(True)
+        self.error_type_sd.setChecked(True)
+
+        error_bar_layout.addWidget(self.error_type_sd)
+        error_bar_layout.addWidget(self.error_type_sem)
+        annot_layout.addLayout(error_bar_layout, 2, 0, 1, 2)
+
+        # Add this new layout for error bar style
+        error_style_layout = QHBoxLayout()
+        error_style_layout.setObjectName("lyoErrorBarStyle")
+        error_style_label = QLabel("Error bar style:")
+        error_style_label.setObjectName("lblErrorBarStyle")
+        error_style_layout.addWidget(error_style_label)
+
+        self.error_style_caps = QRadioButton("With caps")
+        self.error_style_caps.setObjectName("radErrorStyleCaps")
+        self.error_style_caps.setChecked(True)
+        self.error_style_line = QRadioButton("Line only")
+        self.error_style_line.setObjectName("radErrorStyleLine")
+
+        # ButtonGroup for Caps/Line
+        self.error_style_group = QButtonGroup(self)
+        self.error_style_group.addButton(self.error_style_caps)
+        self.error_style_group.addButton(self.error_style_line)
+        self.error_style_group.setExclusive(True)
+        self.error_style_caps.setChecked(True)
+
+        error_style_layout.addWidget(self.error_style_caps)
+        error_style_layout.addWidget(self.error_style_line)
+        annot_layout.addLayout(error_style_layout, 3, 0, 1, 2)
+
+        # Live-Update bei Umschalten
+        for rb in (self.error_type_sd, self.error_type_sem, self.error_style_caps, self.error_style_line):
+            rb.toggled.connect(self.update_preview)
+                
+        # Significance display options
+        sig_group = QGroupBox("Statistical Significance")
+        sig_layout = QVBoxLayout(sig_group)
+        sig_layout.setContentsMargins(8, 8, 8, 8)  # Tighter margins
+        sig_layout.setSpacing(2)  # Tighter spacing
+        
+        self.sig_letters_radio = QRadioButton("Show significance as letters")
+        self.sig_bars_radio = QRadioButton("Show significance as bars")
+        self.sig_none_radio = QRadioButton("No significance indicators")
+        self.sig_letters_radio.setChecked(True)
+        sig_layout.addWidget(self.sig_letters_radio)
+        sig_layout.addWidget(self.sig_bars_radio)
+        sig_layout.addWidget(self.sig_none_radio)
+        
+        annot_layout.addWidget(self.refline_check, 0, 0)
+        annot_layout.addWidget(self.panel_label_check, 0, 1)
+        annot_layout.addWidget(self.value_annot_check, 1, 0)
+        annot_layout.addWidget(sig_group, 4, 0, 1, 2)
+        
+        self.tabs.addTab(annot_tab, "Annotations")
+
+        # --- Tab 6: Export & Metadata ---
+        meta_tab = QWidget()
+        meta_layout = QGridLayout(meta_tab)
+        meta_layout.setVerticalSpacing(2)  # Reduce vertical spacing
+        meta_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
+        
+        self.embed_fonts_check = QCheckBox("Embed fonts in PDF/SVG")
+        self.add_metadata_check = QCheckBox("Add metadata block to export")
+        meta_layout.addWidget(self.embed_fonts_check, 0, 0)
+        meta_layout.addWidget(self.add_metadata_check, 0, 1)
+        self.tabs.addTab(meta_tab, "Export")
+
+        # --- Buttons ---
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(4)  # Reduce spacing
+        main_layout.addLayout(btn_layout)
+        
+        self.default_btn = QPushButton("Set as Default")
+        self.default_btn.clicked.connect(self.save_as_default)
+        btn_layout.addWidget(self.default_btn)
+        
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_layout.addWidget(btns)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+
+        # --- Signals for live update ---
+        widgets = [
+            self.width_spin, self.height_spin, self.dpi_spin, self.aspect_combo, self.aspect_custom,
+            self.show_title_check,
+            self.fontsize_title, self.fontsize_axis, self.fontsize_ticks, self.fontsize_groupnames,
+            self.alpha_spin,
+            self.axis_linewidth_spin, self.bar_linewidth_spin, self.gridline_width_spin,
+            self.grid_check, self.minor_tick_check, self.logy_check, self.logx_check,
+            self.despine_check, self.refline_check, self.panel_label_check, self.value_annot_check,
+            self.sig_letters_radio, self.sig_bars_radio, self.sig_none_radio,
+            self.embed_fonts_check, self.add_metadata_check
+        ]
+        for widget in widgets:
+            if hasattr(widget, 'valueChanged'):
+                widget.valueChanged.connect(self.update_preview)
+            elif hasattr(widget, 'currentIndexChanged'):
+                widget.currentIndexChanged.connect(self.update_preview)
+            elif hasattr(widget, 'stateChanged'):
+                widget.stateChanged.connect(self.update_preview)
+            elif hasattr(widget, 'toggled'):
+                widget.toggled.connect(self.update_preview)
+                
+        for btn in self.color_buttons.values():
+            btn.clicked.connect(self.update_preview)
+        for combo in self.hatch_combos.values():
+            combo.currentIndexChanged.connect(self.update_preview)
+
+    def select_color(self, group):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            self.color_buttons[group].setStyleSheet(f"background-color: {color.name()};")
+            self.update_preview()
+
+    def select_bar_edge_color(self):
+        color = QColorDialog.getColor()
+        if color.isValid():
+            self.bar_edge_color_btn.setStyleSheet(f"background-color: {color.name()};")
+            self.update_preview()
+
+    def _apply_config(self):
+        """Apply stored configuration values to UI elements"""
+        if not self.config:
+            return
+        if 'plot_type' in self.config and self.plot_type_combo.findText(self.config['plot_type']) >= 0:
+            self.plot_type_combo.setCurrentText(self.config['plot_type'])
+            
+        # Size & Resolution
+        if 'width' in self.config:
+            self.width_spin.setValue(self.config['width'])
+        if 'height' in self.config:
+            self.height_spin.setValue(self.config['height'])
+        if 'dpi' in self.config:
+            self.dpi_spin.setValue(self.config['dpi'])
+        
+        # Typography
+        if 'show_title' in self.config:
+            self.show_title_check.setChecked(self.config['show_title'])
+        if 'font_main' in self.config and self.font_main.findText(self.config['font_main']) >= 0:
+            self.font_main.setCurrentText(self.config['font_main'])
+        if 'font_axis' in self.config and self.font_axis.findText(self.config['font_axis']) >= 0:
+            self.font_axis.setCurrentText(self.config['font_axis'])
+        if 'fontsize_title' in self.config:
+            self.fontsize_title.setValue(self.config['fontsize_title'])
+        if 'fontsize_axis' in self.config:
+            self.fontsize_axis.setValue(self.config['fontsize_axis'])
+        if 'fontsize_ticks' in self.config:
+            self.fontsize_ticks.setValue(self.config['fontsize_ticks'])
+        if 'fontsize_groupnames' in self.config:
+            self.fontsize_groupnames.setValue(self.config['fontsize_groupnames'])
+        
+        # Colors & Patterns
+
+        if 'alpha' in self.config:
+            self.alpha_spin.setValue(self.config['alpha'])
+        if 'colors' in self.config:
+            for group, color in self.config['colors'].items():
+                if group in self.color_buttons and color:
+                    self.color_buttons[group].setStyleSheet(f"background-color: {color};")
+        if 'hatches' in self.config:
+            for group, hatch in self.config['hatches'].items():
+                if group in self.hatch_combos and self.hatch_combos[group].findText(hatch) >= 0:
+                    self.hatch_combos[group].setCurrentText(hatch)
+        if 'bar_edge_color' in self.config:
+            self.bar_edge_color_btn.setStyleSheet(f"background-color: {self.config['bar_edge_color']};")
+        
+        # Lines & Axes
+        if 'axis_linewidth' in self.config:
+            self.axis_linewidth_spin.setValue(self.config['axis_linewidth'])
+        if 'bar_linewidth' in self.config:
+            self.bar_linewidth_spin.setValue(self.config['bar_linewidth']) 
+        if 'gridline_width' in self.config:
+            self.gridline_width_spin.setValue(self.config['gridline_width'])
+        if 'grid' in self.config:
+            self.grid_check.setChecked(self.config['grid'])
+        if 'minor_ticks' in self.config:
+            self.minor_tick_check.setChecked(self.config['minor_ticks'])
+        if 'logy' in self.config:
+            self.logy_check.setChecked(self.config['logy'])
+        if 'logx' in self.config:
+            self.logx_check.setChecked(self.config['logx'])
+        if 'despine' in self.config:
+            self.despine_check.setChecked(self.config['despine'])
+        
+        # Annotations
+        if 'refline' in self.config:
+            self.refline_check.setChecked(self.config['refline'])
+        if 'panel_labels' in self.config:
+            self.panel_label_check.setChecked(self.config['panel_labels'])
+        if 'value_annotations' in self.config:
+            self.value_annot_check.setChecked(self.config['value_annotations'])
+        
+        sig_mode = self.config.get('significance_mode', 'letters')
+        if sig_mode == 'letters':
+            self.sig_letters_radio.setChecked(True)
+        elif sig_mode == 'bars':
+            self.sig_bars_radio.setChecked(True)
+        else:
+            self.sig_none_radio.setChecked(True)
+            
+        # Export
+        if 'embed_fonts' in self.config:
+            self.embed_fonts_check.setChecked(self.config['embed_fonts'])
+        if 'add_metadata' in self.config:
+            self.add_metadata_check.setChecked(self.config['add_metadata'])
+   
+    def open_appearance_dialog(self):
+        dlg = PlotAestheticsDialog(
+            self.groups,
+            self.parent().samples if hasattr(self.parent(), "samples") else {},
+            config=getattr(self, 'appearance_settings', None),  # Use existing settings if present
+            parent=self
+        )
+        if dlg.exec_() == QDialog.Accepted:
+            self.appearance_settings = dlg.get_config()
+
+    def save_as_default(self):
+        """Save current settings as default for future use"""
+        import json
+        import os
+        
+        # Get current config
+        config = self.get_config()
+        
+        # Remove data-specific items that shouldn't be part of defaults
+        for key in ['colors', 'hatches']:
+            if key in config:
+                del config[key]
+                
+        # Save to file in user directory
+        try:
+            config_dir = os.path.join(os.path.expanduser('~'), '.statistik_analyzer')
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+                
+            config_file = os.path.join(config_dir, 'plot_defaults.json')
+            with open(config_file, 'w') as f:
+                json.dump(config, f)
+                
+            QMessageBox.information(self, "Default Settings", 
+                                   f"Default settings saved to {config_file}")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to save default settings: {str(e)}")
+
+    def get_config(self):
+        """Get the current configuration from all UI elements"""
+        # Determine significance mode
+        if self.sig_letters_radio.isChecked():
+            sig_mode = 'letters'
+        elif self.sig_bars_radio.isChecked():
+            sig_mode = 'bars'
+        else:
+            sig_mode = 'none'
+
+        # Error bar type and style
+        error_type = 'sd' if self.error_type_sd.isChecked() else 'se'
+        error_style = 'caps' if self.error_style_caps.isChecked() else 'line'
+
+        return {
+            'width': self.width_spin.value(),
+            'height': self.height_spin.value(),
+            'dpi': self.dpi_spin.value(),
+            'aspect': self.aspect_custom.value() if self.aspect_combo.currentIndex() == 3 else
+                    (1.0 if self.aspect_combo.currentIndex() == 1 else 1.618 if self.aspect_combo.currentIndex() == 2 else None),
+            'show_title': self.show_title_check.isChecked(),
+            'font_main': self.font_main.currentText(),
+            'font_axis': self.font_axis.currentText(),
+            'fontsize_title': self.fontsize_title.value(),
+            'fontsize_axis': self.fontsize_axis.value(),
+            'fontsize_ticks': self.fontsize_ticks.value(),
+            'fontsize_groupnames': self.fontsize_groupnames.value(),
+            'colors': {g: self.color_buttons[g].palette().button().color().name() for g in self.groups},
+            'hatches': {g: self.hatch_combos[g].currentText() for g in self.groups},
+            'alpha': self.alpha_spin.value(),
+            'axis_linewidth': self.axis_linewidth_spin.value(),
+            'bar_linewidth': self.bar_linewidth_spin.value(),
+            'gridline_width': self.gridline_width_spin.value(),
+            'grid': self.grid_check.isChecked(),
+            'minor_ticks': self.minor_tick_check.isChecked(),
+            'logy': self.logy_check.isChecked(),
+            'logx': self.logx_check.isChecked(),
+            'despine': self.despine_check.isChecked(),
+            'refline': self.refline_check.isChecked(),
+            'panel_labels': self.panel_label_check.isChecked(),
+            'value_annotations': self.value_annot_check.isChecked(),
+            'significance_mode': sig_mode,
+            'error_type': error_type,
+            'error_style': error_style,
+            'embed_fonts': self.embed_fonts_check.isChecked(),
+            'add_metadata': self.add_metadata_check.isChecked(),
+            'plot_type': self.plot_type_combo.currentText(),
+            'bar_edge_color': self.bar_edge_color_btn.palette().button().color().name(),
+        }
+
+    def update_preview(self):
+        """Update the preview plot with current settings"""
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        config = self.get_config()
+
+        # --- Fonts ---
+        DataVisualizer.set_global_font(
+            family=config['font_axis'],
+            main_text_family=config['font_main']
+        )
+
+        groups = self.groups
+        samples = self.samples
+        values = [samples[g] for g in groups]
+        means = [np.mean(v) if v else 0 for v in values]
+        # SD/SEM Auswahl
+        if config['error_type'] == 'sd':
+            errors = [np.std(v, ddof=1) if len(v) > 1 else 0 for v in values]
+        else:  # 'se'
+            errors = [
+                (np.std(v, ddof=1) / np.sqrt(len(v)))
+                if len(v) > 1 else 0
+                for v in values
+            ]
+
+        plot_type = config.get('plot_type', 'Bar')
+        bars = None  # For later reference
+
+        # Determine error bar style
+        capsize = 4 if config.get('error_style', 'caps') == 'caps' else 0
+
+        if plot_type == "Bar":
+            bars = ax.bar(
+                groups, means, yerr=errors,
+                color=[config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]) for i, g in enumerate(groups)],
+                hatch=[config['hatches'][g] for g in groups],
+                alpha=config['alpha'],
+                linewidth=config['bar_linewidth'],
+                edgecolor=config.get('bar_edge_color', 'black')
+            )
+
+            # Add error bars with specified style
+            for i, (rect, err) in enumerate(zip(bars, errors)):
+                if err > 0:  # Only add error bars if there's a non-zero error
+                    x = rect.get_x() + rect.get_width() / 2
+                    ax.errorbar(x, means[i], yerr=err, fmt='none',
+                                color='black', capsize=capsize,
+                                linewidth=config['bar_linewidth'] * 0.7)
+                    
+        elif plot_type == "Box":
+            # draw boxes at x = 0,1,2,...
+            positions = list(range(len(groups)))
+            bp = ax.boxplot(
+                [samples[g] for g in groups],
+                patch_artist=True,
+                positions=positions,
+            )
+            # apply colors, hatches and alpha just like the bar plot
+            for i, g in enumerate(groups):
+                box = bp['boxes'][i]
+                box.set_facecolor(config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]))
+                box.set_edgecolor(config.get('bar_edge_color', 'black'))
+                box.set_linewidth(config['bar_linewidth'])
+                box.set_alpha(config['alpha'])
+                box.set_hatch(config['hatches'].get(g, ''))
+            # replace numeric ticks with your group names
+            ax.set_xticks(positions)
+            ax.set_xticklabels(groups)
+                
+        elif plot_type == "Violin":
+            # draw violins at x = 0,1,2...
+            vp = ax.violinplot(
+                [samples[g] for g in groups],
+                showmeans=True, showmedians=True,
+                positions=list(range(len(groups)))
+            )
+            for i, g in enumerate(groups):
+                body = vp['bodies'][i]
+                body.set_facecolor(config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]))
+                body.set_edgecolor(config.get('bar_edge_color', 'black'))
+                body.set_linewidth(config['bar_linewidth'])
+                body.set_alpha(config['alpha'])
+            ax.set_xticks(list(range(len(groups))))
+            ax.set_xticklabels(groups)
+        elif plot_type == "Strip":
+            for i, g in enumerate(groups):
+                vals = samples[g]
+                x = np.full(len(vals), i)
+                ax.scatter(
+                    x, vals,
+                    color=config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]),
+                    edgecolor=config.get('bar_edge_color', 'black'),
+                    alpha=config['alpha'],
+                    s=60,
+                    linewidths=config['bar_linewidth']
+                )
+            # ensure the x-axis shows your group names
+            ax.set_xticks(list(range(len(groups))))
+            ax.set_xticklabels(groups)
+
+        # Set axis line width
+        for spine in ax.spines.values():
+            spine.set_linewidth(config['axis_linewidth'])
+
+        # Individual points (jittered, always black for preview)
+        for i, g in enumerate(groups):
+            vals = samples[g]
+            x = np.full(len(vals), i)
+            jitter = np.random.uniform(-0.2, 0.2, size=len(vals))
+            ax.scatter(x + jitter, vals, color='black', alpha=0.5, zorder=3)
+
+        # Set axis line width
+        for spine in ax.spines.values():
+            spine.set_linewidth(config['axis_linewidth'])
+
+        # Despine if requested
+        if config['despine']:
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+
+        # Grid with specified line width
+        if config['grid']:
+            ax.grid(True, axis='y', alpha=0.2, linewidth=config['gridline_width'])
+
+        # Minor Ticks
+        if config['minor_ticks']:
+            ax.minorticks_on()
+            ax.tick_params(which='minor', length=3, color='black', width=0.5)
+
+        # Log-Scale
+        if config['logy']:
+            ax.set_yscale('log')
+        if config['logx']:
+            ax.set_xscale('log')
+
+        # Reference line
+        if config['refline']:
+            DataVisualizer.add_reference_line(ax, y=0)
+
+        # Panel labels
+        if config['panel_labels']:
+            DataVisualizer.add_panel_labels(self.figure, [ax])
+
+        # Value annotations (only for bar plot)
+        if config['value_annotations'] and bars is not None:
+            DataVisualizer.annotate_bar_values(ax, bars, means, errors, font_size=config['fontsize_ticks'])
+
+        # Apply aspect ratio if specified
+        if config['aspect'] is not None:
+            ax.set_aspect(config['aspect'])
+
+        # Font sizes for ticks and group labels
+        plt.setp(ax.get_xticklabels(), fontsize=config['fontsize_groupnames'])
+        plt.setp(ax.get_yticklabels(), fontsize=config['fontsize_ticks'])
+
+        # Axes labels and title
+        ax.set_xlabel("Group", fontsize=config['fontsize_axis'])
+        ax.set_ylabel("Value", fontsize=config['fontsize_axis'])
+
+        # Only show title if requested
+        if config['show_title']:
+            ax.set_title("Preview", fontsize=config['fontsize_title'])
+
+        # Example of significance indicators (for preview only)
+        if config['significance_mode'] == 'letters':
+            # Example letter grouping
+            y_pos = max(means) * 1.1 if means else 1
+            for i, group in enumerate(groups):
+                ax.text(i, y_pos, 'a', ha='center', fontsize=10)
+        elif config['significance_mode'] == 'bars':
+            # Example significance bar
+            if len(groups) >= 2 and means:
+                y_pos = max(means) * 1.15
+                ax.plot([0, 1], [y_pos, y_pos], 'k-', lw=1)
+                ax.text(0.5, y_pos*1.02, '*', ha='center', fontsize=12)
+
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+
 class TransformationDialog(QDialog):
     def __init__(self, test_info=None, parent=None):
         super().__init__(parent)
@@ -1316,6 +1911,8 @@ class StatisticalAnalyzerApp(QMainWindow):
         )
         
     def init_ui(self):
+        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+        from matplotlib.figure import Figure
         """Initializes all UI elements of the application."""
         # Main widget and layout
         central_widget = QWidget()
@@ -1918,8 +2515,7 @@ class StatisticalAnalyzerApp(QMainWindow):
         dialog.set_x_label(config.get('x_label', ''))
         dialog.set_y_label(config.get('y_label', ''))
         dialog.set_file_name(config.get('file_name', ''))
-        dialog.set_width(config.get('width', 12))
-        dialog.set_height(config.get('height', 10))
+
         
         # Dependent samples
         dialog.dependent_check.setChecked(config.get('dependent', False))
@@ -1932,13 +2528,6 @@ class StatisticalAnalyzerApp(QMainWindow):
             dialog.error_type_sem.setChecked(True)
         else:
             dialog.error_type_sd.setChecked(True)
-        
-        # Set colors and hatches
-        for group in config['groups']:
-            if group in config['colors']:
-                dialog.color_buttons[group].setStyleSheet(f"background-color: {config['colors'][group]};")
-            if group in config['hatches'] and dialog.hatch_combos[group].findText(config['hatches'][group]) >= 0:
-                dialog.hatch_combos[group].setCurrentText(config['hatches'][group])
         
         # Set comparisons
         dialog.comparisons = config.get('comparisons', [])
@@ -2105,7 +2694,13 @@ class StatisticalAnalyzerApp(QMainWindow):
         """Creates a preview of the selected plot."""
         current_row = self.plots_list.currentRow()
         if current_row >= 0:
-            self.preview_plot(current_row)
+            # Update with full appearance settings
+            plot_config = self.plot_configs[current_row]
+            if 'appearance_settings' in plot_config:
+                # Apply appearance_settings consistently
+                self.preview_plot(current_row)
+            else:
+                QMessageBox.warning(self, "Note", "This plot has no appearance settings configured.")
         else:
             QMessageBox.warning(self, "Error", "Please select a plot from the list.")
     
@@ -2117,123 +2712,172 @@ class StatisticalAnalyzerApp(QMainWindow):
             
         if plot_idx < 0 or plot_idx >= len(self.plot_configs):
             return
-        
+
         plot_config = self.plot_configs[plot_idx]
-        
+
         try:
             # Clear the figure
             self.figure.clear()
             ax = self.figure.add_subplot(111)
-            
+
             # Prepare data - with error checking
             plot_samples = {}
-            # Check if 'groups' exists in plot_config
             if 'groups' not in plot_config:
                 QMessageBox.warning(self, "Error", "Configuration contains no groups.")
                 return
-                
+
             for group in plot_config.get('groups', []):
                 if self.samples and group in self.samples:
                     plot_samples[group] = self.samples[group]
-            
+
             if not plot_samples:
                 QMessageBox.warning(self, "Warning", "No data found for the selected groups.")
                 return
-            
-            # Prepare data for DataFrame
+
+            # Prepare data for DataFrame (for possible future use)
             plot_data = []
             for group, values in plot_samples.items():
                 for value in values:
                     plot_data.append({'Group': group, 'Value': value})
-            
             df = pd.DataFrame(plot_data)
-            
-            # Create color list and hatch list
-            colors = [plot_config['colors'].get(group, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]) 
-                    for i, group in enumerate(plot_config['groups'])]
-            hatches = [plot_config['hatches'].get(group, DEFAULT_HATCHES[i % len(DEFAULT_HATCHES)]) 
-                    for i, group in enumerate(plot_config['groups'])]
-            
+
+            # --- APPEARANCE SETTINGS ---
+            appearance = plot_config.get('appearance_settings', None)
+            use_appearance = plot_config.get('create_plot', True) and appearance is not None
+
+            if use_appearance:
+                colors = [appearance['colors'].get(group, DEFAULT_COLORS[i % len(DEFAULT_COLORS)])
+                        for i, group in enumerate(plot_config['groups'])]
+                hatches = [appearance['hatches'].get(group, DEFAULT_HATCHES[i % len(DEFAULT_HATCHES)])
+                        for i, group in enumerate(plot_config['groups'])]
+                alpha = appearance.get('alpha', 0.8)
+                axis_linewidth = appearance.get('axis_linewidth', 0.7)
+                bar_linewidth = appearance.get('bar_linewidth', 1.0)
+                gridline_width = appearance.get('gridline_width', 0.5)
+                grid = appearance.get('grid', False)
+                minor_ticks = appearance.get('minor_ticks', False)
+                despine = appearance.get('despine', True)
+                fontsize_axis = appearance.get('fontsize_axis', 9)
+                fontsize_ticks = appearance.get('fontsize_ticks', 7)
+                fontsize_groupnames = appearance.get('fontsize_groupnames', 8)
+                fontsize_title = appearance.get('fontsize_title', 12)
+                show_title = appearance.get('show_title', True)
+                title = plot_config.get('title', 'Preview')
+                bar_edge_color = appearance.get('bar_edge_color', 'black')
+                plot_type = appearance.get('plot_type', 'Bar')
+            else:
+                colors = ['#CCCCCC'] * len(plot_config['groups'])
+                hatches = [''] * len(plot_config['groups'])
+                alpha = 1.0
+                axis_linewidth = 1.0
+                bar_linewidth = 1.0
+                gridline_width = 0.5
+                grid = True
+                minor_ticks = False
+                despine = True
+                fontsize_axis = 9
+                fontsize_ticks = 7
+                fontsize_groupnames = 8
+                fontsize_title = 12
+                show_title = True
+                title = plot_config.get('title', 'Preview')
+                bar_edge_color = 'black'
+                plot_type = 'Bar'
+
             # Error type from configuration
             error_type = plot_config.get('error_type', 'sd')
-            
-            # Bar plot
-            bars = sns.barplot(x='Group', y='Value', data=df, ax=ax, errorbar=error_type, 
-                  palette=['#E0E0E0', '#A0A0A0', '#707070', '#505050', '#303030', '#000000'], 
-                  capsize=0.1, edgecolor='black', linewidth=1)
-            
-            # Remove top and right spines
-            sns.despine(ax=ax)
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            
-            # Enable scientific notation for y-axis
-            from matplotlib.ticker import ScalarFormatter
-            y_formatter = ScalarFormatter(useOffset=False)
-            y_formatter.set_scientific(True)
-            y_formatter.set_powerlimits((-3, 4))  # Scientific notation for values outside 10^-3 to 10^4
-            ax.yaxis.set_major_formatter(y_formatter)
-            
-            # Apply hatches
-            for i, patch in enumerate(bars.patches):
-                group_idx = i % len(plot_config['groups'])
-                patch.set_hatch(hatches[group_idx])
-                patch.set_edgecolor('black')  # Black border for all bars
-                patch.set_linewidth(1)        # Border width
-            
-            # Add data points (jitter)
-            markers = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', '+', 'x']
-            
-            # For the jitter part in preview_plot:
-            for i, group in enumerate(plot_config['groups']):
-                if group in plot_samples:
-                    values = plot_samples[group]
-                    if not values:  # Check if values are present
-                        continue
-                        
-                    x_pos = i
+
+            groups = plot_config['groups']
+            samples = {g: plot_samples[g] for g in groups}
+            means = [np.mean(samples[g]) if samples[g] else 0 for g in groups]
+            errors = [np.std(samples[g]) if samples[g] else 0 for g in groups]
+            bars = None
+
+            # --- Plot type selection ---
+            if plot_type == "Bar":
+                bars = ax.bar(
+                    groups, means, yerr=errors,
+                    color=colors,
+                    hatch=hatches,
+                    alpha=alpha,
+                    linewidth=bar_linewidth,
+                    edgecolor=bar_edge_color
+                )
+            elif plot_type == "Box":
+                bp = ax.boxplot(
+                    [samples[g] for g in groups],
+                    patch_artist=True
+                )
+                # Apply colors and styles to each box individually
+                for i, (patch, color) in enumerate(zip(bp['boxes'], colors)):
+                    patch.set_facecolor(color)
+                    patch.set_edgecolor(bar_edge_color)
+                    patch.set_linewidth(bar_linewidth)
                     
-                    # Safer method to calculate bar width
-                    try:
-                        # Check if bars and patches exist
-                        if hasattr(bars, 'patches') and bars.patches and i < len(bars.patches):
-                            bar_width = bars.patches[i].get_width() * 0.8  # Use 80% of bar width
-                        else:
-                            bar_width = 0.8  # Default if patches not available
-                            
-                        # Jitter for x-position - distribute evenly over bar width
-                        if len(values) > 1:
-                            jitter = np.linspace(-bar_width/2, bar_width/2, len(values))
-                        else:
-                            jitter = [0]  # Center if only one value
-                            
-                        # Add some randomness to avoid perfect lines
-                        jitter += np.random.normal(0, 0.01, size=len(values))
-                    except Exception as e:
-                        # Fallback if there are problems with jitter calculation
-                        print(f"Error in jitter calculation: {str(e)}")
-                        jitter = np.random.normal(0, 0.1, size=len(values))  # Simple jitter
-                    
-                    for j, (val, jit) in enumerate(zip(values, jitter)):
-                        marker_idx = j % len(markers)
-                        ax.scatter(x_pos + jit, val, color='black', 
-                                marker=markers[marker_idx], s=40, zorder=3, alpha=0.8)
-            
-            # Format plot
-            if plot_config.get('title'):
-                ax.set_title(plot_config['title'])
-            
-            # Axis labels, only if specified
+                # Also style the whiskers, caps, medians, etc.
+                for whisker in bp['whiskers']:
+                    whisker.set_color(bar_edge_color)
+                    whisker.set_linewidth(bar_linewidth)
+                for cap in bp['caps']:
+                    cap.set_color(bar_edge_color)
+                    cap.set_linewidth(bar_linewidth)
+                for median in bp['medians']:
+                    median.set_color(bar_edge_color)
+                    median.set_linewidth(bar_linewidth)
+                for flier in bp['fliers']:
+                    flier.set_markeredgecolor(bar_edge_color)
+
+            elif plot_type == "Violin":
+                vp = ax.violinplot(
+                    [samples[g] for g in groups],
+                    showmeans=True, showmedians=True
+                )
+                # Set edge color and face color for violins
+                for i, pc in enumerate(vp['bodies']):
+                    pc.set_edgecolor(bar_edge_color)
+                    pc.set_linewidth(bar_linewidth)
+                    pc.set_alpha(alpha)
+                    pc.set_facecolor(colors[i % len(colors)])
+            elif plot_type == "Strip":
+                for i, g in enumerate(groups):
+                    vals = samples[g]
+                    x = np.full(len(vals), i)
+                    ax.scatter(
+                        x, vals,
+                        color=colors[i],
+                        edgecolor=bar_edge_color,
+                        alpha=alpha,
+                        s=60,
+                        linewidths=bar_linewidth
+                    )
+
+            # --- Formatting ---
+            if show_title and title:
+                ax.set_title(title, fontsize=fontsize_title)
             if plot_config.get('x_label'):
-                ax.set_xlabel(plot_config['x_label'])
+                ax.set_xlabel(plot_config['x_label'], fontsize=fontsize_axis)
             if plot_config.get('y_label'):
-                ax.set_ylabel(plot_config['y_label'])
-            
+                ax.set_ylabel(plot_config['y_label'], fontsize=fontsize_axis)
+            plt.setp(ax.get_xticklabels(), fontsize=fontsize_groupnames)
+            plt.setp(ax.get_yticklabels(), fontsize=fontsize_ticks)
             ax.tick_params(axis='x', rotation=45)
-            
+
+            # Grid and minor ticks
+            if grid:
+                ax.grid(True, axis='y', alpha=0.2, linewidth=gridline_width)
+            if minor_ticks:
+                ax.minorticks_on()
+                ax.tick_params(which='minor', length=3, color='black', width=0.5)
+
+            # Despine if requested
+            if despine:
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+            for spine in ax.spines.values():
+                spine.set_linewidth(axis_linewidth)
+
             self.figure.tight_layout()
             self.canvas.draw()
-            
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error creating preview: {str(e)}")
             import traceback
@@ -2291,29 +2935,31 @@ class StatisticalAnalyzerApp(QMainWindow):
                 traceback.print_exc()
         
         QMessageBox.information(self, "Success", f"{success_count} of {len(self.plot_configs)} plots were successfully created and saved.")
+
+        # Add this cleanup code
+        import matplotlib.pyplot as plt
+        plt.close('all')  # Close all matplotlib figures to free memory
     
     def run_single_analysis(self, plot_config, output_dir=None):
-        """Runs the analysis for a specific plot configuration.
-        
-        Args:
-            plot_config (dict): Configuration for the plot
-            output_dir (str, optional): Output directory. Default is None.
-        """
+        print("DEBUG EXECUTION: run_single_analysis started")
+        print(f"DEBUG EXECUTION: plot_config = {plot_config}")
+        print(f"DEBUG EXECUTION: output_dir = {output_dir}")
+
+        # Initialize results variable
+        results = {}
+
         if self.samples is None:
             raise ValueError("No data loaded.")
-        
+
         # Check if all groups have data
         for group in plot_config['groups']:
             if group not in self.samples or not self.samples[group]:
                 QMessageBox.warning(self, "Warning", f"Group '{group}' has no data or does not exist.")
                 return
-            
+
         # Determine columns to use for analysis
-        if len(self.selected_columns) > 1:
-            value_cols = self.selected_columns
-        else:
-            value_cols = [self.value_cols_combo.currentText()]
-        
+        value_cols = self.selected_columns if len(self.selected_columns) > 1 else [self.value_cols_combo.currentText()]
+
         # Prepare parameters for analyze()
         kwargs = {
             'file_path': self.file_path,
@@ -2325,175 +2971,109 @@ class StatisticalAnalyzerApp(QMainWindow):
             'dependent': plot_config['dependent'],
             'combine_columns': self.combine_columns,
             'skip_plots': not plot_config.get('create_plot', True),
+            'skip_excel': False,  # always write Excel
             'x_label': plot_config.get('x_label'),
             'y_label': plot_config.get('y_label'),
             'title': plot_config.get('title'),
             'error_type': plot_config.get('error_type', 'sd'),
-            'file_name': plot_config.get('file_name', f"{plot_config['groups'][0]}_vs_{plot_config['groups'][1]}"),
+            'file_name': plot_config.get('file_name') or "_".join(plot_config['groups']),
             'show_individual_lines': plot_config.get('show_individual_lines', True),
             'value_cols': value_cols,
         }
-        
-        # Add additional_factors for Two-Way ANOVA if present
-        if 'additional_factors' in plot_config and plot_config['additional_factors']:
+
+        # Merge appearance settings
+        if 'appearance_settings' in plot_config:
+            appearance = plot_config['appearance_settings']
+            kwargs.update({
+                'plot_type': appearance.get('plot_type', 'Bar'),
+                'dpi': appearance.get('dpi', 300),
+                'aspect': appearance.get('aspect'),
+                'font_main': appearance.get('font_main', 'Arial'),
+                'font_axis': appearance.get('font_axis', 'Arial'),
+                'show_title': appearance.get('show_title', True),
+                'fontsize_title': appearance.get('fontsize_title', 12),
+                'fontsize_axis': appearance.get('fontsize_axis', 9),
+                'fontsize_ticks': appearance.get('fontsize_ticks', 7),
+                'fontsize_groupnames': appearance.get('fontsize_groupnames', 8),
+                'axis_linewidth': appearance.get('axis_linewidth', 0.7),
+                'bar_linewidth': appearance.get('bar_linewidth', 1.0),
+                'gridline_width': appearance.get('gridline_width', 0.5),
+                'grid': appearance.get('grid', False),
+                'minor_ticks': appearance.get('minor_ticks', False),
+                'logy': appearance.get('logy', False),
+                'logx': appearance.get('logx', False),
+                'despine': appearance.get('despine', True),
+                'alpha': appearance.get('alpha', 0.8),
+                'bar_edge_color': appearance.get('bar_edge_color', 'black'),
+                'refline': appearance.get('refline', False),
+                'panel_labels': appearance.get('panel_labels', False),
+                'value_annotations': appearance.get('value_annotations', False),
+                'significance_mode': appearance.get('significance_mode', 'letters'),
+                'embed_fonts': appearance.get('embed_fonts', False),
+                'add_metadata': appearance.get('add_metadata', False),
+                'colors': [appearance['colors'].get(g) for g in plot_config['groups']],
+                'hatches': [appearance['hatches'].get(g) for g in plot_config['groups']],
+            })
+
+        # Additional factors for two-way ANOVA
+        if plot_config.get('additional_factors'):
             kwargs['additional_factors'] = plot_config['additional_factors']
-            
-        # Add compare parameter if comparisons are present
-        if 'comparisons' in plot_config and plot_config['comparisons']:
-            # Create list of tuples for compare parameter
-            compare_list = [(comp['group1'], comp['group2']) for comp in plot_config['comparisons']]
-            kwargs['compare'] = compare_list
-        
-        # Create color and hatch lists based on configuration
-        colors = [plot_config['colors'].get(group, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]) 
-                 for i, group in enumerate(plot_config['groups'])]
-        hatches = [plot_config['hatches'].get(group, DEFAULT_HATCHES[i % len(DEFAULT_HATCHES)]) 
-                  for i, group in enumerate(plot_config['groups'])]
-        
-        kwargs['colors'] = colors
-        kwargs['hatches'] = hatches
-        # Validation for dependent samples
-        if plot_config['dependent']:
-            validation = StatisticalTester.validate_dependent_data(self.samples, plot_config['groups'])
-            if not validation["valid"]:
-                error_msg = "Problem with dependent samples:\n\n" + "\n".join(validation["messages"])
-                
-                # Option to continue or abort
-                reply = QMessageBox.warning(
-                    self, 
-                    "Validation problem for dependent samples", 
-                    error_msg + "\n\nDo you want to continue anyway?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No
-                )
-                
-                if reply == QMessageBox.No:
-                    QMessageBox.information(
-                        self, "Analysis aborted", 
-                        "You should uncheck the 'Dependent samples' box or "
-                        "ensure your data meet the requirements."
-                    )
-                    return
-                    
-                # If user wants to continue, add a warning to kwargs
-                kwargs['force_continue'] = True
-                
-        # Save original working directory
+
+        # Pairwise comparisons
+        if plot_config.get('comparisons'):
+            kwargs['compare'] = [(c['group1'], c['group2']) for c in plot_config['comparisons']]
+
         original_cwd = os.getcwd()
-        
         try:
-            # If output_dir is specified, change to it
+            # Change into output directory
             if output_dir:
+                print(f"DEBUG: cd {original_cwd} -> {output_dir}")
                 os.chdir(output_dir)
-                print(f"Changed output directory to: {output_dir}")
-                
-            # Ask for subject ID and within factor for dependent tests if needed
-            if plot_config.get('dependent', False) and plot_config.get('needs_subject_selection', False):
-                from PyQt5.QtWidgets import QDialog, QFormLayout, QComboBox, QDialogButtonBox, QVBoxLayout, QLabel
-                
-                # Dialog to select subject and within factor
-                subject_dialog = QDialog(self)
-                subject_dialog.setWindowTitle("Select Subject ID and Within Factor")
-                subject_layout = QVBoxLayout(subject_dialog)
-                
-                # Explanation
-                info_label = QLabel("The following assignments are required for dependent tests:")
-                subject_layout.addWidget(info_label)
-                
-                form_layout = QFormLayout()
-                
-                # Subject ID
-                subject_combo = QComboBox()
-                # Add all columns from the DataFrame
-                subject_combo.addItems(self.df.columns)
-                # Preselect if available 
-                for i, col in enumerate(self.df.columns):
-                    if col.lower() in ('subject', 'subjekt', 'id', 'patient'):
-                        subject_combo.setCurrentIndex(i)
-                        break
-                form_layout.addRow("Subject ID column:", subject_combo)
-                
-                # Within factor
-                within_combo = QComboBox()
-                within_combo.addItems(self.df.columns)
-                # Preselect if available
-                for i, col in enumerate(self.df.columns):
-                    if col.lower() in ('timepoint', 'zeit', 'messung', 'time', 'within'):
-                        within_combo.setCurrentIndex(i)
-                        break
-                form_layout.addRow("Within factor column:", within_combo)
-                
-                subject_layout.addLayout(form_layout)
-                
-                # OK/Cancel buttons
-                button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-                button_box.accepted.connect(subject_dialog.accept)
-                button_box.rejected.connect(subject_dialog.reject)
-                subject_layout.addWidget(button_box)
-                
-                if subject_dialog.exec_() == QDialog.Accepted:
-                    # Take selected values into kwargs
-                    kwargs['subject_column'] = subject_combo.currentText()
-                    kwargs['within_column'] = within_combo.currentText()
+                print(f"DEBUG: cwd now {os.getcwd()}")
+
+            # If dependent requires a subject dialog, show it first
+            if plot_config['dependent'] and plot_config['needs_subject_selection']:
+                dlg = QDialog(self)
+                dlg.setWindowTitle("Select Subject & Within Factor")
+                layout = QFormLayout(dlg)
+                subject_cb = QComboBox(); subject_cb.addItems(self.df.columns)
+                within_cb = QComboBox(); within_cb.addItems(self.df.columns)
+                layout.addRow("Subject column:", subject_cb)
+                layout.addRow("Within factor:", within_cb)
+                btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                btns.accepted.connect(dlg.accept); btns.rejected.connect(dlg.reject)
+                layout.addWidget(btns)
+                if dlg.exec_() == QDialog.Accepted:
+                    kwargs['subject_column'] = subject_cb.currentText()
+                    kwargs['within_column'] = within_cb.currentText()
                 else:
-                    # Abort analysis if cancelled
                     return
-            
-            # Run the analysis
+
+            # Always run the analysis
+            print("DEBUG: Calling AnalysisManager.analyze with:")
+            for k, v in kwargs.items(): print(f"  {k}: {v}")
             results = AnalysisManager.analyze(**kwargs)
-            
-            if 'error' in results and results['error'] is not None and results['error']:
-                QMessageBox.critical(self, "Error", f"Error during analysis: {results['error']}")
-                return
-                
-            # Check for file path info in results
-            if '_file_paths' in results:
-                file_paths = results['_file_paths']
-                files_info = []
-                
-                for file_type, path in file_paths.items():
-                    if os.path.exists(path):
-                        files_info.append(f"{file_type.upper()}: {path}")
-                
-                if files_info:
-                    QMessageBox.information(self, "Success", 
-                                          f"Analysis successful! The following files were created:\n\n" + 
-                                          "\n".join(files_info))
-                else:
-                    QMessageBox.warning(self, "Warning", 
-                                       f"The analysis was performed, but no output files could be found.")
+            print("DEBUG: Analysis complete, results keys:", list(results.keys()) if isinstance(results, dict) else type(results))
+
+            # Collect and report output files
+            files = []
+            base = kwargs['file_name']
+            for ext in ('pdf', 'png', 'xlsx'):
+                path = os.path.join(os.getcwd(), f"{base}.{ext}" if ext!='xlsx' else f"{base}_results.xlsx")
+                if os.path.exists(path): files.append(path)
+            if files:
+                QMessageBox.information(self, "Success", "Created:\n" + "\n".join(files))
             else:
-                # Fallback to old method of file detection
-                group_name = "_".join(plot_config['groups'])
-                pdf_file = os.path.join(os.getcwd(), f"{group_name}.pdf")
-                png_file = os.path.join(os.getcwd(), f"{group_name}.png")
-                excel_file = os.path.join(os.getcwd(), f"{group_name}_results.xlsx")
-                
-                files_info = []
-                if os.path.exists(pdf_file):
-                    files_info.append(f"PDF: {pdf_file}")
-                if os.path.exists(png_file):
-                    files_info.append(f"PNG: {png_file}")
-                if os.path.exists(excel_file):
-                    files_info.append(f"Excel: {excel_file}")
-                
-                if files_info:
-                    QMessageBox.information(self, "Success", 
-                                          f"Analysis successful! The following files were created:\n\n" + 
-                                          "\n".join(files_info))
-                else:
-                    QMessageBox.warning(self, "Warning", 
-                                       f"The analysis was performed, but no output files were found in the directory:\n{os.getcwd()}")
-        
+                QMessageBox.warning(self, "Warning", "No output files were found.")
+
         except Exception as e:
-            print(f"Error: {str(e)}")
-            import traceback
             traceback.print_exc()
-            QMessageBox.critical(self, "Error", f"Error during analysis: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Analysis error: {e}")
         finally:
-            # Cleanup
-            print(f"Switching back to original directory: {original_cwd}")
+            print(f"DEBUG: cd back to {original_cwd}")
             os.chdir(original_cwd)
+            plt.close('all')
+
             
     # Neue Methode für die Anzeige einer Hilfefunktion zu abhängigen Stichproben
     def show_dependent_samples_help(self):
@@ -2639,7 +3219,6 @@ class StatisticalAnalyzerApp(QMainWindow):
                             'height': plot_config.get('height', 10),
                             'dependent': plot_config.get('dependent', False),
                             'skip_plots': not plot_config.get('create_plot', True),
-                            # *** NEW: skip_excel=True prevents individual Excel files for each dataset
                             'skip_excel': True,
                             'x_label': plot_config.get('x_label'),
                             'y_label': plot_config.get('y_label'),
@@ -2650,6 +3229,50 @@ class StatisticalAnalyzerApp(QMainWindow):
                             'dialog_column': column,
                             'dialog_progress': progress_text
                         }
+                        # Apply appearance settings if available
+                        if 'appearance_settings' in plot_config:
+                            appearance = plot_config['appearance_settings']
+                            # Plot type and dimensions
+                            kwargs['plot_type'] = appearance.get('plot_type', 'Bar')
+                            kwargs['dpi'] = appearance.get('dpi', 300)
+                            kwargs['aspect'] = appearance.get('aspect', None)
+                            
+                            # Typography
+                            kwargs['font_main'] = appearance.get('font_main', 'Arial')
+                            kwargs['font_axis'] = appearance.get('font_axis', 'Arial')
+                            kwargs['show_title'] = appearance.get('show_title', True)
+                            kwargs['fontsize_title'] = appearance.get('fontsize_title', 12)
+                            kwargs['fontsize_axis'] = appearance.get('fontsize_axis', 9)
+                            kwargs['fontsize_ticks'] = appearance.get('fontsize_ticks', 7)
+                            kwargs['fontsize_groupnames'] = appearance.get('fontsize_groupnames', 8)
+                            
+                            # Lines and axes
+                            kwargs['axis_linewidth'] = appearance.get('axis_linewidth', 0.7)
+                            kwargs['bar_linewidth'] = appearance.get('bar_linewidth', 1.0)
+                            kwargs['gridline_width'] = appearance.get('gridline_width', 0.5)
+                            kwargs['grid'] = appearance.get('grid', False)
+                            kwargs['minor_ticks'] = appearance.get('minor_ticks', False)
+                            kwargs['logy'] = appearance.get('logy', False)
+                            kwargs['logx'] = appearance.get('logx', False)
+                            kwargs['despine'] = appearance.get('despine', True)
+                            
+                            # Colors and appearance
+                            kwargs['alpha'] = appearance.get('alpha', 0.8)
+                            kwargs['bar_edge_color'] = appearance.get('bar_edge_color', 'black')
+                            
+                            # Annotations
+                            kwargs['refline'] = appearance.get('refline', False)
+                            kwargs['panel_labels'] = appearance.get('panel_labels', False)
+                            kwargs['value_annotations'] = appearance.get('value_annotations', False)
+                            kwargs['significance_mode'] = appearance.get('significance_mode', 'letters')
+                            
+                            # Export options
+                            kwargs['embed_fonts'] = appearance.get('embed_fonts', False)
+                            kwargs['add_metadata'] = appearance.get('add_metadata', False)
+                            
+                            # Handle hatches consistently with colors
+                            if 'hatches' in appearance:
+                                kwargs['hatches'] = [appearance['hatches'].get(group, '') for group in plot_config['groups']]
 
                         # Two-Way ANOVA factors
                         if 'additional_factors' in plot_config and plot_config['additional_factors']:
@@ -2669,6 +3292,25 @@ class StatisticalAnalyzerApp(QMainWindow):
                         print(f"Calling AnalysisManager.analyze() for {column} with skip_excel=True...")
                         start_time = time.time()  # Track execution time
                         results = AnalysisManager.analyze(**kwargs)
+
+                        # --- Export with metadata and font embedding if requested ---
+                        if plot_config.get('create_plot', True) and (
+                            plot_config.get('embed_fonts', False) or plot_config.get('add_metadata', False)
+                        ):
+                            filename = plot_config.get('file_name', f"{column}_analysis")
+                            filetype = "pdf"  # or "svg", depending on your UI
+                            out_path = os.path.join(os.getcwd(), f"{filename}.{filetype}")
+                            fig = results.get('figure', None)
+                            if fig is None:
+                                import matplotlib.pyplot as plt
+                                fig = plt.gcf()
+                            DataVisualizer.export_with_metadata(
+                                fig, out_path,
+                                metadata={"Title": plot_config.get('title', column), "Description": ""},
+                                embed_fonts=plot_config.get('embed_fonts', True),
+                                dpi=plot_config.get('dpi', 300) if 'dpi' in plot_config else 300,
+                                filetype=filetype
+                            )
                         analysis_time = time.time() - start_time
                         
                         # Validate results structure
@@ -2707,12 +3349,29 @@ class StatisticalAnalyzerApp(QMainWindow):
                     print(f"DEBUG MULTI: Excel path will be: {excel_path}")
                     ResultsExporter.export_multi_dataset_results(all_results, excel_path)
                     print("DEBUG MULTI: export_multi_dataset_results() completed successfully")
-                    
-                    # Show success message with file path
+
+                    # Prüfe, ob Plots erzeugt wurden
+                    any_plots = any(plot_config.get('create_plot', True) for plot_config in plot_configs.values())
+                    files_info = [f"Excel: {excel_path}"]
+
+                    if any_plots:
+                        # Optional: Suche nach PDFs/PNGs für jede Analyse
+                        for column, plot_config in plot_configs.items():
+                            if plot_config.get('create_plot', True):
+                                file_name = plot_config.get('file_name', f"{column}_analysis")
+                                pdf_path = os.path.join(output_dir, f"{file_name}.pdf")
+                                png_path = os.path.join(output_dir, f"{file_name}.png")
+                                if os.path.exists(pdf_path):
+                                    files_info.append(f"PDF: {pdf_path}")
+                                if os.path.exists(png_path):
+                                    files_info.append(f"PNG: {png_path}")
+
                     QMessageBox.information(self, "Multi-Dataset Analysis Complete", 
-                        f"Analysis completed successfully!\n\n"
-                        f"Combined results saved to:\n{excel_path}\n\n"
-                        f"Analyzed {len(all_results)} datasets: {', '.join(all_results.keys())}")
+                        "Analysis completed successfully!\n\n"
+                        "The following files were created:\n\n" +
+                        "\n".join(files_info) +
+                        f"\n\nAnalyzed {len(all_results)} datasets: {', '.join(all_results.keys())}"
+                    )
                 else:
                     print("DEBUG MULTI: all_results is empty, skipping export")
                     QMessageBox.warning(self, "No Results", "No analysis results were generated.")
@@ -2730,15 +3389,15 @@ class StatisticalAnalyzerApp(QMainWindow):
                 traceback.print_exc()
                 QMessageBox.critical(self, "Critical error", 
                                 f"An unexpected error occurred: {str(e)}")
-            finally:
-                print(f"Switching back to original directory: {original_cwd}")
-                os.chdir(original_cwd)
+
         except Exception as e:
             print(f"CRITICAL ERROR in run_multi_dataset_analysis: {str(e)}")
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Critical error", 
                             f"A serious error occurred: {str(e)}")
+    
+        os.chdir(original_cwd)
             
     def configure_two_way_anova(self):
         """Configure Two-Way ANOVA"""
@@ -2875,6 +3534,10 @@ def resource_path(relative_path):
 
 if __name__ == "__main__":
     try:
+        # Timer-Warnungen unterdrücken
+        import os
+        os.environ["QT_LOGGING_RULES"] = "qt.core.qobject.timer=false"
+        
         # Apply stylesheet if available
         try:
             with open(resource_path("StyleSheet.qss"), "r", encoding="utf-8") as f:
