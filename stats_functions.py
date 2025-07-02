@@ -4670,68 +4670,46 @@ class DataVisualizer:
         fig.patch.set_facecolor(figure_face_color)
         ax.set_facecolor(background_color)
         
-        # Get min and max across all data for consistent scaling
-        all_data = []
-        for g in groups:
-            all_data.extend(samples[g])
-            
-        global_min = min(all_data) if all_data else 0
-        global_max = max(all_data) if all_data else 1
-        data_range = global_max - global_min
+        # Use the CORRECT Raincloud implementation from Live Preview
+        ax.clear()
         
-        # Add a bit of padding to the data range
-        global_min -= data_range * 0.05
-        global_max += data_range * 0.05
+        # Prepare data like in Live Preview
+        data_x = [np.array(data) for data in [samples[group] for group in groups]]
+        n_groups = len(groups)
         
-        # Define position parameters - y-position for each group
-        ypositions = range(len(groups))
+        # Use the CORRECT colors from Live Preview (pink/green-like colors)
+        boxplots_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
+        violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
+        scatter_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
         
-        for i, group in enumerate(groups):
-            data = samples[group]
-            if len(data) == 0:
-                continue
-                
-            color = colors[i % len(colors)]
-            y = i  # y-position for this group
+        # Create horizontal raincloud plot like in Live Preview
+        bp = ax.boxplot(data_x, patch_artist=True, vert=False)
+        for patch, color in zip(bp['boxes'], boxplots_colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.4)
             
-            # 1. Create half-violin above using KDE
-            if len(data) > 1:
-                kde = stats.gaussian_kde(data)
-                x_vals = np.linspace(global_min, global_max, 200)
-                y_vals = kde(x_vals)
-                # Scale to desired width
-                y_vals = y_vals / np.max(y_vals) * 0.4
-                # Draw half-violin (filled)
-                ax.fill_betweenx(x_vals, y, y + y_vals, color=color, alpha=alpha*0.7, 
-                                 edgecolor=edge_color, linewidth=edge_width*0.5)
+        # Violinplot with correct orientation
+        vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False)
+        for idx, b in enumerate(vp['bodies']):
+            m = np.mean(b.get_paths()[0].vertices[:, 0])
+            # Only show upper half (half-violin)
+            b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], idx+1, idx+2)
+            b.set_color(violin_colors[idx % len(violin_colors)])
             
-            # 2. Create boxplot in center
-            bp = ax.boxplot([data], positions=[y], vert=True, patch_artist=True, 
-                            widths=0.15, showfliers=False)
+        # Scatter points with correct positioning and colors
+        for idx, features in enumerate(data_x):
+            y = np.full(len(features), idx + .8)
+            idxs = np.arange(len(y))
+            out = y.astype(float)
+            out.flat[idxs] += np.random.uniform(low=-.05, high=.05, size=len(idxs))
+            y = out
+            ax.scatter(features, y, s=10, c=scatter_colors[idx % len(scatter_colors)], alpha=0.8)
             
-            # Style boxplot elements
-            for box in bp['boxes']:
-                box.set(facecolor=color, alpha=0.8, edgecolor=edge_color, linewidth=edge_width)
-            for whisker in bp['whiskers']:
-                whisker.set(color=edge_color, linewidth=edge_width)
-            for cap in bp['caps']:
-                cap.set(color=edge_color, linewidth=edge_width)
-            for median in bp['medians']:
-                median.set(color=edge_color, linewidth=edge_width)
-            
-            # 3. Add jittered points below
-            if show_points:
-                x_jitter = np.random.uniform(-0.05, 0.05, size=len(data))
-                y_points = np.full_like(data, y-0.1)  # Points below boxplot
-                
-                ax.scatter(y_points + x_jitter, data, color=color, alpha=0.8, 
-                          s=20, edgecolor=edge_color, linewidth=edge_width*0.3, zorder=2)
-
-        # Set up the axis properly
-        ax.set_yticks(ypositions)
+        # Set up axes and labels like in Live Preview
+        ax.set_yticks(np.arange(1, n_groups+1, 1))
         ax.set_yticklabels([str(g) for g in groups], fontsize=fontsize_groupnames or tick_label_size)
-        ax.set_ylabel("", fontsize=x_label_size)
         ax.set_xlabel(y_label or "Values", fontsize=y_label_size)
+        ax.set_ylabel("")
         
         if title:
             ax.set_title(title, fontsize=title_size, pad=20)
@@ -4740,13 +4718,11 @@ class DataVisualizer:
         ax.tick_params(axis='x', labelsize=tick_label_size)
         ax.tick_params(axis='y', labelsize=fontsize_groupnames or tick_label_size)
         
-        # Key step for correct orientation: flip both axes
-        ax.invert_xaxis()
-        ax.invert_yaxis()
-        
-        # Set proper limits
-        ax.set_xlim(-0.5, len(groups)-0.5)
-        ax.set_ylim(global_max, global_min)  # Inverted y-axis for correct orientation
+        # Set proper limits like in Live Preview
+        if data_x and any(len(d) > 0 for d in data_x):
+            ax.set_xlim(left=min([min(d) for d in data_x if len(d)>0])-1, right=max([max(d) for d in data_x if len(d)>0])+1)
+        ax.set_ylim(0.5, n_groups+1)
+        ax.grid(False)
         
         # Make sure spines are consistent
         for spine in ax.spines.values():
