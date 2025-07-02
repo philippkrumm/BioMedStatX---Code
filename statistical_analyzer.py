@@ -960,7 +960,7 @@ class PlotAestheticsDialog(QDialog):
         preview_group = QGroupBox("Live Preview")
         preview_layout = QVBoxLayout(preview_group)
         preview_layout.setContentsMargins(4, 10, 4, 4)  # Tighter margins
-        self.figure = Figure(figsize=(6, 5), dpi=100)
+        self.figure = Figure(figsize=(8, 5), dpi=100)
         self.canvas = FigureCanvas(self.figure)
         preview_layout.addWidget(self.canvas)
         top_layout.addWidget(preview_group)
@@ -1517,53 +1517,58 @@ class PlotAestheticsDialog(QDialog):
             ax.set_xticks(list(range(len(groups))))
             ax.set_xticklabels(groups)
         elif plot_type == "Raincloud":
-            # --- Use the CORRECT Raincloud implementation from Live Preview ---
+            # --- Use systematic positioning with group_spacing like in stats_functions.py ---
             ax.clear()
             import numpy as np
             from scipy import stats
             
-            # Prepare data like in Live Preview
+            # Prepare data
             data_x = [np.array(samples[g]) for g in groups]
             n_groups = len(groups)
+            
+            # Use group_spacing for systematic positioning (consistent with stats_functions.py)
+            group_spacing = 0.5  # Default spacing for compact visualization
+            positions = [i * group_spacing for i in range(n_groups)]
             
             # Use the CORRECT colors from Live Preview (pink/green-like colors)
             boxplots_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
             violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
             scatter_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
             
-            # Create horizontal raincloud plot like in Live Preview
-            bp = ax.boxplot(data_x, patch_artist=True, vert=False)
+            # Create horizontal raincloud plot with systematic positions
+            bp = ax.boxplot(data_x, patch_artist=True, vert=False, positions=positions)
             for patch, color in zip(bp['boxes'], boxplots_colors):
                 patch.set_facecolor(color)
                 patch.set_alpha(0.4)
                 
-            # Violinplot with correct orientation
-            vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False)
+            # Violinplot with systematic positions
+            vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False, positions=positions)
             for idx, b in enumerate(vp['bodies']):
-                m = np.mean(b.get_paths()[0].vertices[:, 0])
+                pos = positions[idx]
                 # Only show upper half (half-violin)
-                b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], idx+1, idx+2)
+                b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], pos, pos + group_spacing)
                 b.set_color(violin_colors[idx % len(violin_colors)])
                 
-            # Scatter points with correct positioning and colors
+            # Scatter points with systematic positioning
             for idx, features in enumerate(data_x):
-                y = np.full(len(features), idx + .8)
+                pos = positions[idx]
+                y = np.full(len(features), pos - group_spacing * 0.2)  # Offset for scatter
                 idxs = np.arange(len(y))
                 out = y.astype(float)
-                out.flat[idxs] += np.random.uniform(low=-.05, high=.05, size=len(idxs))
+                out.flat[idxs] += np.random.uniform(low=-0.05, high=0.05, size=len(idxs))
                 y = out
                 ax.scatter(features, y, s=10, c=scatter_colors[idx % len(scatter_colors)], alpha=0.8)
                 
-            # Set up axes and labels like in Live Preview
-            ax.set_yticks(np.arange(1, n_groups+1, 1))
+            # Set up axes and labels with systematic positions
+            ax.set_yticks(positions)
             ax.set_yticklabels(groups, fontsize=config['fontsize_groupnames'])
             ax.set_xlabel("Values", fontsize=config['fontsize_axis'])
             ax.set_ylabel("")
             
-            # Set proper limits like in Live Preview
+            # Set proper limits like in Live Preview - make y-axis more compact
             if data_x and any(len(d) > 0 for d in data_x):
                 ax.set_xlim(left=min([min(d) for d in data_x if len(d)>0])-1, right=max([max(d) for d in data_x if len(d)>0])+1)
-            ax.set_ylim(0.5, n_groups+1)
+            ax.set_ylim(0.6, n_groups+0.4)
             ax.grid(False)
 
         # Set axis line width
@@ -1620,10 +1625,20 @@ class PlotAestheticsDialog(QDialog):
 
         # Example of significance indicators (for preview only)
         if config['significance_mode'] == 'letters':
-            # Example letter grouping
-            y_pos = max(means) * 1.1 if means else 1
-            for i, group in enumerate(groups):
-                ax.text(i, y_pos, 'a', ha='center', fontsize=10)
+            if plot_type == "Raincloud":
+                # Für horizontale Raincloud: Buchstaben rechts von den Plot-Elementen
+                # Use systematic positioning like in stats_functions.py
+                group_spacing = 0.5  # Same spacing as used in Raincloud plot
+                positions = [i * group_spacing for i in range(len(groups))]
+                if data_x and any(len(d) > 0 for d in data_x):
+                    x_max = max([max(d) for d in data_x if len(d) > 0])
+                    for i, group in enumerate(groups):
+                        ax.text(x_max * 1.1, positions[i], 'a', ha='left', va='center', fontsize=10)
+            else:
+                # Für vertikale Plots: wie bisher
+                y_pos = max(means) * 1.1 if means else 1
+                for i, group in enumerate(groups):
+                    ax.text(i, y_pos, 'a', ha='center', fontsize=10)
         elif config['significance_mode'] == 'bars':
             # Example significance bar
             if len(groups) >= 2 and means:
@@ -3096,46 +3111,59 @@ class StatisticalAnalyzerApp(QMainWindow):
                         linewidths=bar_linewidth
                     )
             elif plot_type == "Raincloud":
-                # --- Raincloud-Plot wie im Beispiel: horizontal, Box, Violin, Scatter ---
+                # --- Raincloud-Plot mit systematischer Positionierung wie in stats_functions.py ---
                 ax.clear()
                 import numpy as np
                 from scipy import stats
+                
                 # Daten vorbereiten
                 data_x = [np.array(samples[g]) for g in groups]
                 n_groups = len(groups)
+                
+                # Use group_spacing for systematic positioning (consistent with stats_functions.py)
+                group_spacing = 0.5  # Default spacing for compact visualization
+                positions = [i * group_spacing for i in range(n_groups)]
+                
                 # Farben wie im Beispiel, aber dynamisch
                 boxplots_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
                 violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
                 scatter_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
-                # Boxplot
-                bp = ax.boxplot(data_x, patch_artist=True, vert=False)
+                
+                # Boxplot mit systematischen Positionen
+                bp = ax.boxplot(data_x, patch_artist=True, vert=False, positions=positions)
                 for patch, color in zip(bp['boxes'], boxplots_colors):
                     patch.set_facecolor(color)
                     patch.set_alpha(0.4)
-                # Violinplot
-                vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False)
+                    
+                # Violinplot mit systematischen Positionen
+                vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False, positions=positions)
                 for idx, b in enumerate(vp['bodies']):
-                    m = np.mean(b.get_paths()[0].vertices[:, 0])
+                    pos = positions[idx]
                     # Nur obere Hälfte anzeigen
-                    b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], idx+1, idx+2)
+                    b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], pos, pos + group_spacing)
                     b.set_color(violin_colors[idx % len(violin_colors)])
-                # Scatter
+                    
+                # Scatter mit systematischen Positionen
                 for idx, features in enumerate(data_x):
-                    y = np.full(len(features), idx + .8)
+                    pos = positions[idx]
+                    y = np.full(len(features), pos - group_spacing * 0.2)  # Offset for scatter
                     idxs = np.arange(len(y))
                     out = y.astype(float)
-                    out.flat[idxs] += np.random.uniform(low=-.05, high=.05, size=len(idxs))
+                    out.flat[idxs] += np.random.uniform(low=-0.05, high=0.05, size=len(idxs))
                     y = out
                     ax.scatter(features, y, s=10, c=scatter_colors[idx % len(scatter_colors)], alpha=0.8)
-                # Achsen und Labels
-                ax.set_yticks(np.arange(1, n_groups+1, 1))
+                    
+                # Achsen und Labels mit systematischen Positionen
+                ax.set_yticks(positions)
                 ax.set_yticklabels(groups, fontsize=fontsize_groupnames)
                 ax.set_xlabel("Values", fontsize=fontsize_axis)
                 ax.set_ylabel("")
                 ax.set_title(title, fontsize=fontsize_title)
-                # Layout
+                # Layout - make y-axis more compact with systematic positioning
                 ax.set_xlim(left=min([min(d) for d in data_x if len(d)>0])-1, right=max([max(d) for d in data_x if len(d)>0])+1)
-                ax.set_ylim(0.5, n_groups+1)
+                y_min = min(positions) - group_spacing * 0.5
+                y_max = max(positions) + group_spacing * 0.5
+                ax.set_ylim(y_min, y_max)
                 ax.grid(False)
 
             # --- Formatting ---
@@ -3494,6 +3522,13 @@ class StatisticalAnalyzerApp(QMainWindow):
                 x = np.full(len(vals), i)
                 jitter = np.random.uniform(-0.2, 0.2, size=len(vals))
                 ax.scatter(x + jitter, vals, color='black', alpha=0.6, zorder=3, s=30)
+
+            # Add example significance letters for preview
+            if len(groups) >= 2:
+                y_max = max(means) if means else 1
+                letters = ['a', 'b', 'c', 'd', 'e'][:len(groups)]
+                for i, letter in enumerate(letters):
+                    ax.text(i, y_max * 1.1, letter, ha='center', va='bottom', fontsize=10, fontweight='bold')
 
             # Basic formatting with new default font sizes
             ax.set_title(plot_config.get('title', 'Data Preview'), fontsize=11)

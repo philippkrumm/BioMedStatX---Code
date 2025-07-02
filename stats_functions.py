@@ -8,6 +8,7 @@ from scipy.stats import boxcox, boxcox_normmax
 import xlsxwriter
 import os
 import warnings
+import string
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from statsmodels.stats.multitest import multipletests
 from itertools import combinations
@@ -4614,8 +4615,8 @@ class DataVisualizer:
         tick_label_size=10, rotate_x_labels=0,
         y_axis_format='auto', y_limits=None, x_limits=None,
         grid_style='none', grid_alpha=0.3,
-        show_legend=True, legend_position='upper right',
-        legend_bbox=(1.15, 1), legend_fontsize=9,
+        show_legend=True,        legend_position='center right',
+        legend_bbox=(1.08, 0.7), legend_fontsize=9,
         legend_title="Samples", legend_title_size=12,
         spine_style='minimal', background_color='white',
         figure_face_color='white',
@@ -4626,7 +4627,7 @@ class DataVisualizer:
         subplot_margins=None, tight_layout=True,
         # Appearance options
         font_main=None, font_axis=None, fontsize_title=None, fontsize_axis=None,
-        fontsize_ticks=None, fontsize_groupnames=None, legend_colors=None
+        fontsize_ticks=None, fontsize_groupnames=None, legend_colors=None, group_spacing=0.5
     ):
         """Creates a raincloud plot (violin + box + points) with half violins above boxplots and data points below."""
         import seaborn as sns
@@ -4682,31 +4683,38 @@ class DataVisualizer:
         violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
         scatter_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
         
-        # Create horizontal raincloud plot like in Live Preview
-        bp = ax.boxplot(data_x, patch_artist=True, vert=False)
+        # Use these colors for the legend as well
+        actual_legend_colors = {groups[i]: boxplots_colors[i % len(boxplots_colors)] for i in range(len(groups))}
+        
+        # Calculate explicit positions based on group_spacing
+        positions = np.arange(1, n_groups+1) * group_spacing
+        
+        # Create horizontal raincloud plot with explicit positions
+        bp = ax.boxplot(data_x, patch_artist=True, vert=False, positions=positions)
         for patch, color in zip(bp['boxes'], boxplots_colors):
             patch.set_facecolor(color)
             patch.set_alpha(0.4)
             
-        # Violinplot with correct orientation
-        vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False)
+        # Violinplot with correct orientation and explicit positions
+        vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False, positions=positions)
         for idx, b in enumerate(vp['bodies']):
             m = np.mean(b.get_paths()[0].vertices[:, 0])
-            # Only show upper half (half-violin)
-            b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], idx+1, idx+2)
+            # Only show upper half (half-violin) - adjust clipping to new positions
+            pos = positions[idx]
+            b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], pos, pos+1)
             b.set_color(violin_colors[idx % len(violin_colors)])
             
-        # Scatter points with correct positioning and colors
+        # Scatter points with correct positioning based on positions
         for idx, features in enumerate(data_x):
-            y = np.full(len(features), idx + .8)
+            y = np.full(len(features), positions[idx] - 0.2)  # Position scatter points below center
             idxs = np.arange(len(y))
             out = y.astype(float)
             out.flat[idxs] += np.random.uniform(low=-.05, high=.05, size=len(idxs))
             y = out
             ax.scatter(features, y, s=10, c=scatter_colors[idx % len(scatter_colors)], alpha=0.8)
             
-        # Set up axes and labels like in Live Preview
-        ax.set_yticks(np.arange(1, n_groups+1, 1))
+        # Set up axes and labels with explicit positions
+        ax.set_yticks(positions)
         ax.set_yticklabels([str(g) for g in groups], fontsize=fontsize_groupnames or tick_label_size)
         ax.set_xlabel(y_label or "Values", fontsize=y_label_size)
         ax.set_ylabel("")
@@ -4721,7 +4729,8 @@ class DataVisualizer:
         # Set proper limits like in Live Preview
         if data_x and any(len(d) > 0 for d in data_x):
             ax.set_xlim(left=min([min(d) for d in data_x if len(d)>0])-1, right=max([max(d) for d in data_x if len(d)>0])+1)
-        ax.set_ylim(0.5, n_groups+1)
+        # Set y-limits based on calculated positions and group_spacing
+        ax.set_ylim(positions[0] - group_spacing*0.4, positions[-1] + group_spacing*0.4)
         ax.grid(False)
         
         # Make sure spines are consistent
@@ -4755,19 +4764,26 @@ class DataVisualizer:
         if y_limits:  # y_limits would control group range (rarely used)
             ax.set_ylim(y_limits)
             
+        # Add significance letters for raincloud if requested
+        if show_significance_letters:
+            DataVisualizer._add_significance_letters_raincloud(
+                ax, groups, samples, test_recommendation,
+                significance_height_offset, significance_font_size, positions
+            )
+            
         # Add legend with correct colors
         if show_legend:
             if legend_colors is not None:
                 # Use the provided legend colors
                 colors_to_use = legend_colors
             else:
-                # Use the colors from the plot
-                colors_to_use = colors
+                # Use the actual colors from the raincloud plot
+                colors_to_use = actual_legend_colors
                 
             # Create patches for the legend with the correct colors
             legend_patches = []
             for i, group in enumerate(groups):
-                color = colors_to_use.get(group, colors[i % len(colors)]) if isinstance(colors_to_use, dict) else colors[i % len(colors)]
+                color = colors_to_use.get(group, actual_legend_colors[group]) if isinstance(colors_to_use, dict) else actual_legend_colors[group]
                 patch = mpatches.Patch(color=color, label=str(group), alpha=alpha)
                 legend_patches.append(patch)
                 
@@ -4789,12 +4805,13 @@ class DataVisualizer:
         if watermark:
             DataVisualizer._add_watermark(fig, watermark)
             
-        # Layout adjustments
+        # Layout adjustments - optimize for raincloud plots
         if tight_layout:
             if subplot_margins:
                 plt.subplots_adjust(**subplot_margins)
             else:
-                fig.tight_layout()
+                # Better tight_layout for raincloud plots - less aggressive compression
+                fig.tight_layout(rect=[0, 0.05, 0.85, 0.93])
                 
         # Save plot if requested
         if save_plot:
@@ -5113,6 +5130,50 @@ class DataVisualizer:
                                 alpha=0.8))
         except Exception as e:
             print(f"Error adding significance letters: {str(e)}")
+
+    @staticmethod
+    def _add_significance_letters_raincloud(ax, groups, samples, test_recommendation, 
+                                          height_offset, font_size, positions=None):
+        """Add significance letters for horizontal raincloud plots"""
+        try:
+            import string
+            import numpy as np
+            letters = DataVisualizer.get_significance_letters(
+                samples, groups, test_recommendation=test_recommendation
+            )
+            
+            # For horizontal raincloud, find the rightmost x position
+            x_positions = []
+            for group in groups:
+                values = samples[group]
+                if values:
+                    x_positions.append(max(values))
+            
+            if x_positions:
+                x_max = max(x_positions)
+                # Reduce the offset to move letters closer to the plots (about 1.5-2 cm)
+                x_range = max(x_positions) - min([min(samples[group]) for group in groups if samples[group]])
+                x_offset = x_max + (x_range * 0.12)  # Much closer to the plots
+                
+                # Use provided positions or fall back to default spacing
+                if positions is None:
+                    positions = np.arange(1, len(groups)+1)
+                
+                # Place letters to the right of the plot elements using actual positions
+                for i, group in enumerate(groups):
+                    letter = letters[group]
+                    y_pos = positions[i]  # Use calculated positions instead of i+1
+                    ax.text(x_offset, y_pos, letter,
+                           horizontalalignment='left', 
+                           verticalalignment='center',
+                           color='black', fontweight='bold',
+                           fontsize=font_size,
+                           bbox=dict(boxstyle="round,pad=0.3", 
+                                    facecolor="white", 
+                                    edgecolor="gray",
+                                    alpha=0.8))
+        except Exception as e:
+            print(f"Error adding raincloud significance letters: {str(e)}")
 
     @staticmethod
     def set_global_font(family="Arial", main_text_family="Times New Roman", use_latex=False):
