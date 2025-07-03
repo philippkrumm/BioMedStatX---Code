@@ -17,11 +17,20 @@ from PyQt5.QtCore import Qt
 
 # DISABLED: Nonparametric fallbacks are not yet supported
 # from nonparametricanovas import NonParametricFactory, NonParametricRMANOVA
-# New class imports:
 from stats_functions import (
     DataImporter, StatisticalTester, DataVisualizer, AnalysisManager, ResultsExporter, 
     UIDialogManager, OutlierDetector, OUTLIER_IMPORTS_AVAILABLE
 )
+# Import the new PlotAestheticsDialog for advanced plot appearance configuration
+try:
+    from plot_aesthetics_dialog import PlotAestheticsDialog
+    PLOT_MODULES_AVAILABLE = True
+    print(f"SUCCESS: Imported PlotAestheticsDialog from plot_aesthetics_dialog.py")
+    print(f"DEBUG: PlotAestheticsDialog class: {PlotAestheticsDialog}")
+except ImportError as e:
+    print(f"WARNING: Could not import new plot modules: {e}")
+    PlotAestheticsDialog = None
+    PLOT_MODULES_AVAILABLE = False
 import traceback
 print(f"DEBUG: RUNNING FILE VERSION FROM {time.time()} - {os.path.abspath(__file__)}")
 
@@ -533,6 +542,10 @@ class AdvancedTestDialog(QDialog):
         # Between factors only for Mixed ANOVA or Two-Way ANOVA
         self.betweenList.setEnabled(is_mixed or is_two_way)    
         
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QGroupBox, QHBoxLayout, QListWidget, QPushButton, QGridLayout, QLabel, QLineEdit, QCheckBox, QRadioButton, QButtonGroup, QFormLayout, QDialogButtonBox, QColorDialog, QMessageBox
+import traceback
+
+# --- Unified PlotConfigDialog (new system) ---
 class PlotConfigDialog(QDialog):
     def __init__(self, groups, parent=None):
         if not groups:
@@ -567,49 +580,22 @@ class PlotConfigDialog(QDialog):
         reset_button.clicked.connect(self.reset_comparisons)
         comp_layout.addWidget(reset_button)
         
-        # Plot title and axis labels
-        title_group = QGroupBox("Plot Labels")
-        title_group.setObjectName("grpPlotLabels")
-        title_layout = QGridLayout(title_group)
-        title_layout.setObjectName("lyoPlotLabels")
+        # File name configuration
+        file_group = QGroupBox("File Configuration")
+        file_group.setObjectName("grpFileConfig")
+        file_layout = QGridLayout(file_group)
+        file_layout.setObjectName("lyoFileConfig")
 
-        # Plot title
-        title_label = QLabel("Plot Title:")
-        title_label.setObjectName("lblPlotTitle")
-        title_layout.addWidget(title_label, 0, 0)
-        self.title_edit = QLineEdit("")
-        self.title_edit.setObjectName("edtPlotTitle")
-        self.title_edit.setPlaceholderText("Optional")
-        title_layout.addWidget(self.title_edit, 0, 1)
-
-        # Add file name
+        # File name only
         file_label = QLabel("File Name:")
         file_label.setObjectName("lblFileName")
-        title_layout.addWidget(file_label, 1, 0)
+        file_layout.addWidget(file_label, 0, 0)
         self.file_name_edit = QLineEdit("")
         self.file_name_edit.setObjectName("edtFileName")
         self.file_name_edit.setPlaceholderText("Default: automatically generated from group names")
-        title_layout.addWidget(self.file_name_edit, 1, 1)
-
-        # X-axis
-        x_label = QLabel("X-Axis Label:")
-        x_label.setObjectName("lblXAxis")
-        title_layout.addWidget(x_label, 2, 0)  # Changed here: 2, 0 instead of 1, 0
-        self.x_label_edit = QLineEdit("")
-        self.x_label_edit.setObjectName("edtXAxis")
-        self.x_label_edit.setPlaceholderText("Optional")
-        title_layout.addWidget(self.x_label_edit, 2, 1)  # Changed here: 2, 1 instead of 1, 1
-
-        # Y-axis
-        y_label = QLabel("Y-Axis Label:")
-        y_label.setObjectName("lblYAxis")
-        title_layout.addWidget(y_label, 3, 0)  # Changed here: 3, 0 instead of 2, 0
-        self.y_label_edit = QLineEdit("")
-        self.y_label_edit.setObjectName("edtYAxis")
-        self.y_label_edit.setPlaceholderText("Optional")
-        title_layout.addWidget(self.y_label_edit, 3, 1)  # Changed here: 3, 1 instead of 2, 1
+        file_layout.addWidget(self.file_name_edit, 0, 1)
         
-        layout.addWidget(title_group)
+        layout.addWidget(file_group)
         
         # Statistical options
         stats_group = QGroupBox("Statistical Options")
@@ -648,9 +634,6 @@ class PlotConfigDialog(QDialog):
         dependent_layout.addStretch()
         
         stats_layout.addLayout(dependent_layout)
-        
-        # Connect dependent checkbox to toggle function
-        self.dependent_check.toggled.connect(self.toggle_dependent_options)
         
         # Error bar type
         error_bar_layout = QHBoxLayout()
@@ -723,7 +706,7 @@ class PlotConfigDialog(QDialog):
 
         # wire it up so it only shows when create_plot is checked
         self.create_plot_check.toggled.connect(self.appearance_btn.setVisible)
-        
+
         # Initialize appearance button text
         self.update_appearance_button_text()
         
@@ -770,23 +753,47 @@ class PlotConfigDialog(QDialog):
         self.dependent_data_options.setVisible(checked)
 
     def open_appearance_dialog(self):
+        print("DEBUG: open_appearance_dialog called!")
+        print(f"DEBUG: PLOT_MODULES_AVAILABLE = {PLOT_MODULES_AVAILABLE}")
+        print(f"DEBUG: PlotAestheticsDialog = {PlotAestheticsDialog}")
+        
         # Get the ordered groups from the list widget instead of using self.groups
         ordered_groups = [self.order_list.item(i).text() for i in range(self.order_list.count())]
+        print(f"DEBUG: ordered_groups = {ordered_groups}")
         
-        dlg = PlotAestheticsDialog(
-            ordered_groups,  # Pass ordered groups instead of self.groups
-            self.parent().samples if hasattr(self.parent(), "samples") else {},
-            config=getattr(self, 'appearance_settings', None),
-            parent=self
-        )
-        if dlg.exec_() == QDialog.Accepted:
-            self.appearance_settings = dlg.get_config()
-            # Update button text to show that settings are configured
-            self.update_appearance_button_text()
+        # Only open PlotAestheticsDialog for appearance configuration, not as main dialog
+        if PLOT_MODULES_AVAILABLE and PlotAestheticsDialog:
+            print("DEBUG: Opening new PlotAestheticsDialog!")
+            # Greife auf parent App zu für temporäre Einstellungen
+            parent_app = self.parent()
+            current_config = getattr(parent_app, 'temp_plot_appearance_settings', None) or {}
+            dlg = PlotAestheticsDialog(
+                ordered_groups,
+                parent_app.samples if hasattr(parent_app, "samples") else {},
+                config=current_config,
+                parent=self
+            )
+            print("DEBUG: PlotAestheticsDialog created successfully")
+            if dlg.exec_() == dlg.Accepted:
+                print("DEBUG: Dialog accepted, saving settings")
+                # Speichere in temporären Einstellungen der parent App
+                parent_app.temp_plot_appearance_settings = dlg.get_config()
+                self.update_appearance_button_text()
+                # WICHTIG: Aktualisiere die Live-Preview im Hauptfenster
+                parent_app.auto_generate_preview()
+            else:
+                print("DEBUG: Dialog cancelled")
+        else:
+            print("DEBUG: PlotAestheticsDialog not available, showing warning")
+            QMessageBox.warning(self, "Feature not available", 
+                               "The new plot appearance dialog is not available. "
+                               "Please ensure plot_aesthetics_dialog.py is in the same directory.")
     
     def update_appearance_button_text(self):
         """Update the appearance button text to show if settings are configured"""
-        if hasattr(self, 'appearance_settings') and self.appearance_settings:
+        # Greife auf die parent App zu, um die temporären Einstellungen zu prüfen
+        parent_app = self.parent()
+        if hasattr(parent_app, 'temp_plot_appearance_settings') and parent_app.temp_plot_appearance_settings:
             self.appearance_btn.setText("Configure appearance… ✓")
             self.appearance_btn.setToolTip("Appearance settings are configured. Click to modify.")
         else:
@@ -811,9 +818,6 @@ class PlotConfigDialog(QDialog):
             "showing the individual changes."
         )
         
-    def set_title(self, title): self.title_edit.setText(title)
-    def set_x_label(self, x): self.x_label_edit.setText(x)
-    def set_y_label(self, y): self.y_label_edit.setText(y)
     def set_groups(self, groups): self.groups = groups
     def set_width(self, w): self.width_spin.setValue(w)
     def set_height(self, h): self.height_spin.setValue(h)
@@ -876,9 +880,6 @@ class PlotConfigDialog(QDialog):
             for g in self.groups:
                 hatches_dict[g] = ""  # Default: no hatch
             config = {
-                'title': self.title_edit.text() if self.title_edit.text() else None,
-                'x_label': self.x_label_edit.text() if self.x_label_edit.text() else None,
-                'y_label': self.y_label_edit.text() if self.y_label_edit.text() else None,
                 'file_name': self.file_name_edit.text() if self.file_name_edit.text() else None,
                 'groups': [self.order_list.item(i).text() for i in range(self.order_list.count())],
                 'group_order': [self.order_list.item(i).text() for i in range(self.order_list.count())],
@@ -893,8 +894,8 @@ class PlotConfigDialog(QDialog):
                 'show_individual_lines': self.show_individual_lines.isChecked() if self.dependent_check.isChecked() else False,
                 'needs_subject_selection': self.dependent_check.isChecked()
             }
-            # Add appearance settings if present
-            if hasattr(self, 'appearance_settings'):
+            # Always add appearance_settings from PlotAestheticsDialog if present
+            if hasattr(self, 'appearance_settings') and self.appearance_settings:
                 config['appearance_settings'] = self.appearance_settings
             return config
         except Exception as e:
@@ -923,731 +924,339 @@ class PlotConfigDialog(QDialog):
         self.comparisons = []
         self.comparisons_list.clear()
         
-class PlotAestheticsDialog(QDialog):
-    """
-    Dialog for plot appearance options, with more compact layout.
-    """
-    def __init__(self, groups, samples, config=None, parent=None):
-        super().__init__(parent)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        self.setWindowTitle("Plot Appearance & Preview")
-        self.resize(1600, 800)  # Adjusted size
-        self.groups = groups
-        self.samples = samples  # dict: group -> list of values
-        self.config = config or {}
-        self._init_ui()
-        self._apply_config()
-        self.update_preview()
-
-    def _init_ui(self):
-        from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-        from matplotlib.figure import Figure
-
-        main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(4)  # Reduce spacing between elements
-        main_layout.setContentsMargins(6, 6, 6, 6)  # Reduce dialog margins
-
-        # --- Split the layout horizontally ---
-        top_layout = QHBoxLayout()
-        top_layout.setSpacing(4)  # Reduce spacing
-        main_layout.addLayout(top_layout, 2)  # 2/3 of space for top section
-
-        # --- Tabs ---
-        self.tabs = QTabWidget()
-        top_layout.addWidget(self.tabs)
-
-        # --- Preview panel (moved side-by-side) ---
-        preview_group = QGroupBox("Live Preview")
-        preview_layout = QVBoxLayout(preview_group)
-        preview_layout.setContentsMargins(4, 10, 4, 4)  # Tighter margins
-        self.figure = Figure(figsize=(8, 5), dpi=100)
-        self.canvas = FigureCanvas(self.figure)
-        preview_layout.addWidget(self.canvas)
-        top_layout.addWidget(preview_group)
-
-        # --- Tab 1: Size & Resolution ---
-        size_tab = QWidget()
-        size_layout = QGridLayout(size_tab)
-        size_layout.setVerticalSpacing(2)  # Reduce vertical spacing
-        size_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
+    def _convert_old_config_to_new(self, old_config):
+        """
+        Konvertiert alte Plot-Konfiguration zum neuen Format.
+        """
+        config = {
+            'plot_type': 'Bar',  # Default
+            'width': 8,
+            'height': 6,
+            'dpi': 300,
+            'colors': {},
+            'hatches': {},
+            'alpha': 0.8,
+            'theme': 'default',
+            'grid': False,
+            'despine': True,
+            'show_error_bars': True,
+            'error_type': 'sd',
+            'error_style': 'caps',
+            'capsize': 0.05,
+            'show_points': True,
+            'point_size': 80,
+            'jitter_strength': 0.3,
+            'show_significance_letters': True,
+            'x_label': '',
+            'y_label': '',
+            'title': old_config.get('title', ''),
+            'fontsize_title': 14,
+            'fontsize_axis': 12,
+            'fontsize_ticks': 10,
+            'bar_linewidth': 0.5,
+            'bar_edge_color': 'black'
+        }
         
-        # NOW add the plot type combo box AFTER size_layout is created
-        self.plot_type_combo = QComboBox()
-        self.plot_type_combo.addItems(["Bar", "Box", "Violin", "Strip", "Raincloud"])
-        size_layout.addWidget(QLabel("Plot type:"), 0, 0)
-        size_layout.addWidget(self.plot_type_combo, 0, 1)
-        self.plot_type_combo.currentIndexChanged.connect(self.update_preview)  
-        
-        self.width_spin = QSpinBox(); self.width_spin.setRange(4, 30); self.width_spin.setValue(12)
-        self.height_spin = QSpinBox(); self.height_spin.setRange(4, 30); self.height_spin.setValue(10)
-        self.dpi_spin = QSpinBox(); self.dpi_spin.setRange(72, 600); self.dpi_spin.setValue(300)
-        self.aspect_combo = QComboBox(); self.aspect_combo.addItems(["Auto", "Square (1:1)", "Golden ratio (~1.6:1)", "Custom"])
-        self.aspect_custom = QDoubleSpinBox(); self.aspect_custom.setRange(0.2, 5.0); self.aspect_custom.setSingleStep(0.1); self.aspect_custom.setValue(1.0); self.aspect_custom.setEnabled(False)
-        self.aspect_combo.currentIndexChanged.connect(lambda idx: self.aspect_custom.setEnabled(idx == 3))
-        
-        size_layout.addWidget(QLabel("Width:"), 1, 0); size_layout.addWidget(self.width_spin, 1, 1)
-        size_layout.addWidget(QLabel("Height:"), 2, 0); size_layout.addWidget(self.height_spin, 2, 1)
-        size_layout.addWidget(QLabel("DPI:"), 3, 0); size_layout.addWidget(self.dpi_spin, 3, 1)
-        size_layout.addWidget(QLabel("Aspect:"), 4, 0); size_layout.addWidget(self.aspect_combo, 4, 1)
-        size_layout.addWidget(self.aspect_custom, 4, 2)
-        self.tabs.addTab(size_tab, "Size")
-
-        # --- Tab 2: Typography & Labels ---
-        font_tab = QWidget()
-        font_layout = QGridLayout(font_tab)
-        font_layout.setVerticalSpacing(2)  # Reduce vertical spacing
-        font_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
-        
-        # Title controls
-        self.show_title_check = QCheckBox("Show title")
-        self.show_title_check.setChecked(True)
-        font_layout.addWidget(self.show_title_check, 0, 0, 1, 2)
-        
-        # Font selections
-        self.font_main = QComboBox(); self.font_main.addItems(["Arial", "Calibri", "Times New Roman", "Georgia"])
-        self.font_axis = QComboBox(); self.font_axis.addItems(["Arial", "Calibri", "Times New Roman", "Georgia"])
-        # Fix: Use activated signal to apply font immediately after selection
-        self.font_main.activated.connect(lambda idx: self.update_preview())
-        self.font_axis.activated.connect(lambda idx: self.update_preview())
-        
-        # Font sizes
-        self.fontsize_title = QSpinBox(); self.fontsize_title.setRange(6, 30); self.fontsize_title.setValue(11)
-        self.fontsize_axis = QSpinBox(); self.fontsize_axis.setRange(6, 20); self.fontsize_axis.setValue(11)
-        self.fontsize_ticks = QSpinBox(); self.fontsize_ticks.setRange(5, 16); self.fontsize_ticks.setValue(11)
-        self.fontsize_groupnames = QSpinBox(); self.fontsize_groupnames.setRange(5, 16); self.fontsize_groupnames.setValue(11)
-
-        font_layout.addWidget(QLabel("Title text:"), 1, 0); font_layout.addWidget(self.font_main, 1, 1)
-        font_layout.addWidget(QLabel("Axis font:"), 2, 0); font_layout.addWidget(self.font_axis, 2, 1)
-        font_layout.addWidget(QLabel("Title size:"), 1, 2); font_layout.addWidget(self.fontsize_title, 1, 3)
-        font_layout.addWidget(QLabel("Axis label size:"), 2, 2); font_layout.addWidget(self.fontsize_axis, 2, 3)
-        font_layout.addWidget(QLabel("Tick size:"), 3, 2); font_layout.addWidget(self.fontsize_ticks, 3, 3)
-        font_layout.addWidget(QLabel("Group names size:"), 4, 2); font_layout.addWidget(self.fontsize_groupnames, 4, 3)
-        
-        self.tabs.addTab(font_tab, "Typography")
-
-        # --- Tab 3: Colors & Patterns ---
-        color_tab = QWidget()
-        color_layout = QGridLayout(color_tab)
-        color_layout.setVerticalSpacing(2)  # Reduce vertical spacing
-        color_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
-        
-        self.color_buttons = {}
-        self.hatch_combos = {}
-        self.alpha_spin = QDoubleSpinBox(); self.alpha_spin.setRange(0.1, 1.0); self.alpha_spin.setSingleStep(0.05); self.alpha_spin.setValue(0.8)
-
-        # Add after self.alpha_spin in the Colors tab setup
-        self.bar_edge_color_btn = QPushButton()
-        self.bar_edge_color_btn.setFixedSize(30, 30)
-        self.bar_edge_color_btn.setStyleSheet("background-color: black;")
-        self.bar_edge_color_btn.clicked.connect(self.select_bar_edge_color)
-        color_layout.addWidget(QLabel("Bar border color:"), len(self.groups)+2, 0)
-        color_layout.addWidget(self.bar_edge_color_btn, len(self.groups)+2, 1)
-        
-        # Remove colormap dropdown as requested
-        color_layout.addWidget(QLabel("Group"), 0, 0)
-        color_layout.addWidget(QLabel("Color"), 0, 1)
-        color_layout.addWidget(QLabel("Pattern"), 0, 2)
-        
-        for i, group in enumerate(self.groups):
-            color_btn = QPushButton(); color_btn.setFixedSize(30, 30)
-            color_btn.setStyleSheet(f"background-color: {DEFAULT_COLORS[i % len(DEFAULT_COLORS)]};")
-            color_btn.clicked.connect(lambda _, g=group: self.select_color(g))
-            hatch_combo = QComboBox(); hatch_combo.addItems(DEFAULT_HATCHES)
-            self.color_buttons[group] = color_btn
-            self.hatch_combos[group] = hatch_combo
-            color_layout.addWidget(QLabel(str(group)), i+1, 0)
-            color_layout.addWidget(color_btn, i+1, 1)
-            color_layout.addWidget(hatch_combo, i+1, 2)
-        
-        # Keep transparency control but remove colormap
-        color_layout.addWidget(QLabel("Transparency:"), len(self.groups)+1, 0)
-        color_layout.addWidget(self.alpha_spin, len(self.groups)+1, 1)
-        self.tabs.addTab(color_tab, "Colors")
-
-        # --- Tab 4: Lines & Axes ---
-        line_tab = QWidget()
-        line_layout = QGridLayout(line_tab)
-        line_layout.setVerticalSpacing(2)  # Reduce vertical spacing
-        line_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
-        
-        # Line widths with separate controls
-        self.axis_linewidth_spin = QDoubleSpinBox(); self.axis_linewidth_spin.setRange(0.2, 3.0); self.axis_linewidth_spin.setValue(0.7)
-        self.bar_linewidth_spin = QDoubleSpinBox(); self.bar_linewidth_spin.setRange(0.2, 3.0); self.bar_linewidth_spin.setValue(1.0)
-        self.gridline_width_spin = QDoubleSpinBox(); self.gridline_width_spin.setRange(0.1, 2.0); self.gridline_width_spin.setValue(0.5)
-
-        # Checkboxes for grid and ticks
-        self.grid_check = QCheckBox("Show grid lines")
-        self.grid_check.setChecked(False)  # Ensure grid is off by default
-        self.minor_tick_check = QCheckBox("Minor ticks")
-        self.minor_tick_check.setChecked(False)  # Default to no minor ticks
-        self.logy_check = QCheckBox("Y-axis log")
-        self.logx_check = QCheckBox("X-axis log")
-        self.despine_check = QCheckBox("Remove top and right spines (despine)")
-        self.despine_check.setChecked(True)
-        
-        line_layout.addWidget(QLabel("Axis line width:"), 0, 0); line_layout.addWidget(self.axis_linewidth_spin, 0, 1)
-        line_layout.addWidget(QLabel("Bar border width:"), 1, 0); line_layout.addWidget(self.bar_linewidth_spin, 1, 1)
-        line_layout.addWidget(QLabel("Grid line width:"), 2, 0); line_layout.addWidget(self.gridline_width_spin, 2, 1)
-        line_layout.addWidget(self.grid_check, 3, 0)
-        line_layout.addWidget(self.minor_tick_check, 3, 1)
-        line_layout.addWidget(self.logy_check, 4, 0)
-        line_layout.addWidget(self.logx_check, 4, 1)
-        line_layout.addWidget(self.despine_check, 5, 0, 1, 2)
-        
-        self.tabs.addTab(line_tab, "Lines/Axes")
-
-        # --- Tab 5: Annotations ---
-        annot_tab = QWidget()
-        annot_layout = QGridLayout(annot_tab)
-        annot_layout.setVerticalSpacing(2)  # Reduce vertical spacing
-        annot_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
-        
-        self.refline_check = QCheckBox("Reference line (y=0)")
-        self.panel_label_check = QCheckBox("Panel labels (A, B, ...)")
-        self.value_annot_check = QCheckBox("Show values above bars")
-
-        error_bar_layout = QHBoxLayout()
-        error_bar_layout.setObjectName("lyoErrorBarType")
-        error_bar_label = QLabel("Error bar type:")
-        error_bar_label.setObjectName("lblErrorBarType")
-        error_bar_layout.addWidget(error_bar_label)
-
-        self.error_type_sd = QRadioButton("Standard deviation (SD)")
-        self.error_type_sd.setObjectName("radErrorTypeSD")
-        self.error_type_sd.setChecked(True)
-        self.error_type_sem = QRadioButton("Standard error (SEM)")
-        self.error_type_sem.setObjectName("radErrorTypeSEM")
-
-        # ButtonGroup for SD/SEM
-        self.error_type_group = QButtonGroup(self)
-        self.error_type_group.addButton(self.error_type_sd)
-        self.error_type_group.addButton(self.error_type_sem)
-        self.error_type_group.setExclusive(True)
-        self.error_type_sd.setChecked(True)
-
-        error_bar_layout.addWidget(self.error_type_sd)
-        error_bar_layout.addWidget(self.error_type_sem)
-        annot_layout.addLayout(error_bar_layout, 2, 0, 1, 2)
-
-        # Add this new layout for error bar style
-        error_style_layout = QHBoxLayout()
-        error_style_layout.setObjectName("lyoErrorBarStyle")
-        error_style_label = QLabel("Error bar style:")
-        error_style_label.setObjectName("lblErrorBarStyle")
-        error_style_layout.addWidget(error_style_label)
-
-        self.error_style_caps = QRadioButton("With caps")
-        self.error_style_caps.setObjectName("radErrorStyleCaps")
-        self.error_style_caps.setChecked(True)
-        self.error_style_line = QRadioButton("Line only")
-        self.error_style_line.setObjectName("radErrorStyleLine")
-
-        # ButtonGroup for Caps/Line
-        self.error_style_group = QButtonGroup(self)
-        self.error_style_group.addButton(self.error_style_caps)
-        self.error_style_group.addButton(self.error_style_line)
-        self.error_style_group.setExclusive(True)
-        self.error_style_caps.setChecked(True)
-
-        error_style_layout.addWidget(self.error_style_caps)
-        error_style_layout.addWidget(self.error_style_line)
-        annot_layout.addLayout(error_style_layout, 3, 0, 1, 2)
-
-        # Live-Update bei Umschalten
-        for rb in (self.error_type_sd, self.error_type_sem, self.error_style_caps, self.error_style_line):
-            rb.toggled.connect(self.update_preview)
+        # Konvertiere alte appearance_settings
+        if 'appearance_settings' in old_config:
+            appearance = old_config['appearance_settings']
+            
+            # Plot type
+            config['plot_type'] = appearance.get('plot_type', 'Bar')
+            
+            # Farben und Hatches
+            if 'colors' in appearance:
+                config['colors'] = appearance['colors']
+            if 'hatches' in appearance:
+                config['hatches'] = appearance['hatches']
                 
-        # Significance display options
-        sig_group = QGroupBox("Statistical Significance")
-        sig_layout = QVBoxLayout(sig_group)
-        sig_layout.setContentsMargins(8, 8, 8, 8)  # Tighter margins
-        sig_layout.setSpacing(2)  # Tighter spacing
+            # Weitere Einstellungen übernehmen
+            config.update({
+                'alpha': appearance.get('alpha', 0.8),
+                'grid': appearance.get('grid', False),
+                'despine': appearance.get('despine', True),
+                'fontsize_title': appearance.get('fontsize_title', 14),
+                'fontsize_axis': appearance.get('fontsize_axis', 12),
+                'fontsize_ticks': appearance.get('fontsize_ticks', 10),
+                'bar_linewidth': appearance.get('bar_linewidth', 0.5),
+                'bar_edge_color': appearance.get('bar_edge_color', 'black')
+            })
         
-        self.sig_letters_radio = QRadioButton("Show significance as letters")
-        self.sig_bars_radio = QRadioButton("Show significance as bars")
-        self.sig_none_radio = QRadioButton("No significance indicators")
-        self.sig_letters_radio.setChecked(True)
-        sig_layout.addWidget(self.sig_letters_radio)
-        sig_layout.addWidget(self.sig_bars_radio)
-        sig_layout.addWidget(self.sig_none_radio)
+        # Verwende globale Einstellungen wenn verfügbar
+        if hasattr(self, 'global_appearance_settings') and self.global_appearance_settings:
+            config.update(self.global_appearance_settings)
         
-        annot_layout.addWidget(self.refline_check, 0, 0)
-        annot_layout.addWidget(self.panel_label_check, 0, 1)
-        annot_layout.addWidget(self.value_annot_check, 1, 0)
-        annot_layout.addWidget(sig_group, 4, 0, 1, 2)
-        
-        self.tabs.addTab(annot_tab, "Annotations")
+        return config
 
-        # --- Tab 6: Export & Metadata ---
-        meta_tab = QWidget()
-        meta_layout = QGridLayout(meta_tab)
-        meta_layout.setVerticalSpacing(2)  # Reduce vertical spacing
-        meta_layout.setContentsMargins(10, 10, 10, 10)  # Reduce tab margins
-        
-        self.embed_fonts_check = QCheckBox("Embed fonts in PDF/SVG")
-        self.add_metadata_check = QCheckBox("Add metadata block to export")
-        meta_layout.addWidget(self.embed_fonts_check, 0, 0)
-        meta_layout.addWidget(self.add_metadata_check, 0, 1)
-        self.tabs.addTab(meta_tab, "Export")
-
-        # --- Buttons ---
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(4)  # Reduce spacing
-        main_layout.addLayout(btn_layout)
-        
-        self.default_btn = QPushButton("Set as Default")
-        self.default_btn.clicked.connect(self.save_as_default)
-        btn_layout.addWidget(self.default_btn)
-        
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btn_layout.addWidget(btns)
-        btns.accepted.connect(self.accept)
-        btns.rejected.connect(self.reject)
-
-        # --- Signals for live update ---
-        widgets = [
-            self.width_spin, self.height_spin, self.dpi_spin, self.aspect_combo, self.aspect_custom,
-            self.show_title_check,
-            self.fontsize_title, self.fontsize_axis, self.fontsize_ticks, self.fontsize_groupnames,
-            self.alpha_spin,
-            self.axis_linewidth_spin, self.bar_linewidth_spin, self.gridline_width_spin,
-            self.grid_check, self.minor_tick_check, self.logy_check, self.logx_check,
-            self.despine_check, self.refline_check, self.panel_label_check, self.value_annot_check,
-            self.sig_letters_radio, self.sig_bars_radio, self.sig_none_radio,
-            self.embed_fonts_check, self.add_metadata_check
-        ]
-        for widget in widgets:
-            if hasattr(widget, 'valueChanged'):
-                widget.valueChanged.connect(self.update_preview)
-            elif hasattr(widget, 'currentIndexChanged'):
-                widget.currentIndexChanged.connect(self.update_preview)
-            elif hasattr(widget, 'stateChanged'):
-                widget.stateChanged.connect(self.update_preview)
-            elif hasattr(widget, 'toggled'):
-                widget.toggled.connect(self.update_preview)
-                
-        for btn in self.color_buttons.values():
-            btn.clicked.connect(self.update_preview)
-        for combo in self.hatch_combos.values():
-            combo.currentIndexChanged.connect(self.update_preview)
-
-    def select_color(self, group):
-        color = QColorDialog.getColor()
-        if color.isValid():
-            self.color_buttons[group].setStyleSheet(f"background-color: {color.name()};")
-            self.update_preview()
-
-    def select_bar_edge_color(self):
-        color = QColorDialog.getColor()
-        if color.isValid():
-            self.bar_edge_color_btn.setStyleSheet(f"background-color: {color.name()};")
-            self.update_preview()
-
-    def _apply_config(self):
-        """Apply stored configuration values to UI elements"""
-        if not self.config:
-            # Set reasonable defaults even when no config is provided
-            self.grid_check.setChecked(False)  # Ensure grid is off by default
+    def preview_plot(self, plot_idx):
+        """Creates a preview of a plot based on its configuration."""
+        if self.samples is None:
+            QMessageBox.warning(self, "Error", "No data loaded.")
             return
             
-        if 'plot_type' in self.config and self.plot_type_combo.findText(self.config['plot_type']) >= 0:
-            self.plot_type_combo.setCurrentText(self.config['plot_type'])
-            
-        # Size & Resolution
-        if 'width' in self.config:
-            self.width_spin.setValue(self.config['width'])
-        if 'height' in self.config:
-            self.height_spin.setValue(self.config['height'])
-        if 'dpi' in self.config:
-            self.dpi_spin.setValue(self.config['dpi'])
-        
-        # Typography
-        if 'show_title' in self.config:
-            self.show_title_check.setChecked(self.config['show_title'])
-        if 'font_main' in self.config and self.font_main.findText(self.config['font_main']) >= 0:
-            self.font_main.setCurrentText(self.config['font_main'])
-        if 'font_axis' in self.config and self.font_axis.findText(self.config['font_axis']) >= 0:
-            self.font_axis.setCurrentText(self.config['font_axis'])
-        if 'fontsize_title' in self.config:
-            self.fontsize_title.setValue(self.config['fontsize_title'])
-        if 'fontsize_axis' in self.config:
-            self.fontsize_axis.setValue(self.config['fontsize_axis'])
-        if 'fontsize_ticks' in self.config:
-            self.fontsize_ticks.setValue(self.config['fontsize_ticks'])
-        if 'fontsize_groupnames' in self.config:
-            self.fontsize_groupnames.setValue(self.config['fontsize_groupnames'])
-        
-        # Colors & Patterns
+        if plot_idx < 0 or plot_idx >= len(self.plot_configs):
+            return
 
-        if 'alpha' in self.config:
-            self.alpha_spin.setValue(self.config['alpha'])
-        if 'colors' in self.config:
-            for group, color in self.config['colors'].items():
-                if group in self.color_buttons and color:
-                    self.color_buttons[group].setStyleSheet(f"background-color: {color};")
-        if 'hatches' in self.config:
-            for group, hatch in self.config['hatches'].items():
-                if group in self.hatch_combos and self.hatch_combos[group].findText(hatch) >= 0:
-                    self.hatch_combos[group].setCurrentText(hatch)
-        if 'bar_edge_color' in self.config:
-            self.bar_edge_color_btn.setStyleSheet(f"background-color: {self.config['bar_edge_color']};")
-        
-        # Lines & Axes
-        if 'axis_linewidth' in self.config:
-            self.axis_linewidth_spin.setValue(self.config['axis_linewidth'])
-        if 'bar_linewidth' in self.config:
-            self.bar_linewidth_spin.setValue(self.config['bar_linewidth']) 
-        if 'gridline_width' in self.config:
-            self.gridline_width_spin.setValue(self.config['gridline_width'])
-        if 'grid' in self.config:
-            self.grid_check.setChecked(self.config['grid'])
-        if 'minor_ticks' in self.config:
-            self.minor_tick_check.setChecked(self.config['minor_ticks'])
-        if 'logy' in self.config:
-            self.logy_check.setChecked(self.config['logy'])
-        if 'logx' in self.config:
-            self.logx_check.setChecked(self.config['logx'])
-        if 'despine' in self.config:
-            self.despine_check.setChecked(self.config['despine'])
-        
-        # Annotations
-        if 'refline' in self.config:
-            self.refline_check.setChecked(self.config['refline'])
-        if 'panel_labels' in self.config:
-            self.panel_label_check.setChecked(self.config['panel_labels'])
-        if 'value_annotations' in self.config:
-            self.value_annot_check.setChecked(self.config['value_annotations'])
-        
-        sig_mode = self.config.get('significance_mode', 'letters')
-        if sig_mode == 'letters':
-            self.sig_letters_radio.setChecked(True)
-        elif sig_mode == 'bars':
-            self.sig_bars_radio.setChecked(True)
-        else:
-            self.sig_none_radio.setChecked(True)
-            
-        # Export
-        if 'embed_fonts' in self.config:
-            self.embed_fonts_check.setChecked(self.config['embed_fonts'])
-        if 'add_metadata' in self.config:
-            self.add_metadata_check.setChecked(self.config['add_metadata'])
-   
-    def open_appearance_dialog(self):
-        dlg = PlotAestheticsDialog(
-            self.groups,
-            self.parent().samples if hasattr(self.parent(), "samples") else {},
-            config=getattr(self, 'appearance_settings', None),  # Use existing settings if present
-            parent=self
-        )
-        if dlg.exec_() == QDialog.Accepted:
-            self.appearance_settings = dlg.get_config()
+        plot_config = self.plot_configs[plot_idx]
 
-    def save_as_default(self):
-        """Save current settings as default for future use"""
-        import json
-        import os
-        
-        # Get current config
-        config = self.get_config()
-        
-        # Remove data-specific items that shouldn't be part of defaults
-        for key in ['colors', 'hatches']:
-            if key in config:
-                del config[key]
-                
-        # Save to file in user directory
         try:
-            config_dir = os.path.join(os.path.expanduser('~'), '.statistik_analyzer')
-            if not os.path.exists(config_dir):
-                os.makedirs(config_dir)
-                
-            config_file = os.path.join(config_dir, 'plot_defaults.json')
-            with open(config_file, 'w') as f:
-                json.dump(config, f)
-                
-            QMessageBox.information(self, "Default Settings", 
-                                   f"Default settings saved to {config_file}")
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to save default settings: {str(e)}")
+            # Prepare data - with error checking
+            plot_samples = {}
+            if 'groups' not in plot_config:
+                QMessageBox.warning(self, "Error", "Configuration contains no groups.")
+                return
 
-    def get_config(self):
-        """Get the current configuration from all UI elements"""
-        # Determine significance mode
-        if self.sig_letters_radio.isChecked():
-            sig_mode = 'letters'
-        elif self.sig_bars_radio.isChecked():
-            sig_mode = 'bars'
-        else:
-            sig_mode = 'none'
+            for group in plot_config.get('groups', []):
+                if self.samples and group in self.samples:
+                    plot_samples[group] = self.samples[group]
 
-        # Error bar type and style
-        error_type = 'sd' if self.error_type_sd.isChecked() else 'se'
-        error_style = 'caps' if self.error_style_caps.isChecked() else 'line'
+            if not plot_samples:
+                QMessageBox.warning(self, "Warning", "No data found for the selected groups.")
+                return
 
-        return {
-            'width': self.width_spin.value(),
-            'height': self.height_spin.value(),
-            'dpi': self.dpi_spin.value(),
-            'aspect': self.aspect_custom.value() if self.aspect_combo.currentIndex() == 3 else
-                    (1.0 if self.aspect_combo.currentIndex() == 1 else 1.618 if self.aspect_combo.currentIndex() == 2 else None),
-            'show_title': self.show_title_check.isChecked(),
-            'font_main': self.font_main.currentText(),
-            'font_axis': self.font_axis.currentText(),
-            'fontsize_title': self.fontsize_title.value(),
-            'fontsize_axis': self.fontsize_axis.value(),
-            'fontsize_ticks': self.fontsize_ticks.value(),
-            'fontsize_groupnames': self.fontsize_groupnames.value(),
-            'colors': {g: self.color_buttons[g].palette().button().color().name() for g in self.groups},
-            'hatches': {g: self.hatch_combos[g].currentText() for g in self.groups},
-            'alpha': self.alpha_spin.value(),
-            'axis_linewidth': self.axis_linewidth_spin.value(),
-            'bar_linewidth': self.bar_linewidth_spin.value(),
-            'gridline_width': self.gridline_width_spin.value(),
-            'grid': self.grid_check.isChecked(),
-            'minor_ticks': self.minor_tick_check.isChecked(),
-            'logy': self.logy_check.isChecked(),
-            'logx': self.logx_check.isChecked(),
-            'despine': self.despine_check.isChecked(),
-            'refline': self.refline_check.isChecked(),
-            'panel_labels': self.panel_label_check.isChecked(),
-            'value_annotations': self.value_annot_check.isChecked(),
-            'significance_mode': sig_mode,
-            'error_type': error_type,
-            'error_style': error_style,
-            'embed_fonts': self.embed_fonts_check.isChecked(),
-            'add_metadata': self.add_metadata_check.isChecked(),
-            'plot_type': self.plot_type_combo.currentText(),
-            'bar_edge_color': self.bar_edge_color_btn.palette().button().color().name(),
-        }
-
-    def update_preview(self):
-        """Update the preview plot with current settings"""
-        import matplotlib.pyplot as plt
-        import numpy as np
-
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-        config = self.get_config()
-
-        # --- Fonts ---
-        DataVisualizer.set_global_font(
-            family=config['font_axis'],
-            main_text_family=config['font_main']
-        )
-
-        groups = self.groups
-        samples = self.samples
-        values = [samples[g] for g in groups]
-        means = [np.mean(v) if v else 0 for v in values]
-        # SD/SEM Auswahl
-        if config['error_type'] == 'sd':
-            errors = [np.std(v, ddof=1) if len(v) > 1 else 0 for v in values]
-        else:  # 'se'
-            errors = [
-                (np.std(v, ddof=1) / np.sqrt(len(v)))
-                if len(v) > 1 else 0
-                for v in values
-            ]
-
-        plot_type = config.get('plot_type', 'Bar')
-        bars = None  # For later reference
-
-        # Determine error bar style
-        capsize = 4 if config.get('error_style', 'caps') == 'caps' else 0
-
-        if plot_type == "Bar":
-            bars = ax.bar(
-                groups, means, yerr=errors,
-                color=[config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]) for i, g in enumerate(groups)],
-                hatch=[config['hatches'][g] for g in groups],
-                alpha=config['alpha'],
-                linewidth=config['bar_linewidth'],
-                edgecolor=config.get('bar_edge_color', 'black'),
-                capsize=capsize
-            )
-                    
-        elif plot_type == "Box":
-            # draw boxes at x = 0,1,2,...
-            positions = list(range(len(groups)))
-            bp = ax.boxplot(
-                [samples[g] for g in groups],
-                patch_artist=True,
-                positions=positions,
-            )
-            # apply colors, hatches and alpha just like the bar plot
-            for i, g in enumerate(groups):
-                box = bp['boxes'][i]
-                box.set_facecolor(config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]))
-                box.set_edgecolor(config.get('bar_edge_color', 'black'))
-                box.set_linewidth(config['bar_linewidth'])
-                box.set_alpha(config['alpha'])
-                box.set_hatch(config['hatches'].get(g, ''))
-            # replace numeric ticks with your group names
-            ax.set_xticks(positions)
-            ax.set_xticklabels(groups)
-                
-        elif plot_type == "Violin":
-            # draw violins at x = 0,1,2...
-            vp = ax.violinplot(
-                [samples[g] for g in groups],
-                showmeans=True, showmedians=True,
-                positions=list(range(len(groups)))
-            )
-            for i, g in enumerate(groups):
-                body = vp['bodies'][i]
-                body.set_facecolor(config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]))
-                body.set_edgecolor(config.get('bar_edge_color', 'black'))
-                body.set_linewidth(config['bar_linewidth'])
-                body.set_alpha(config['alpha'])
-            ax.set_xticks(list(range(len(groups))))
-            ax.set_xticklabels(groups)
-        elif plot_type == "Strip":
-            for i, g in enumerate(groups):
-                vals = samples[g]
-                x = np.full(len(vals), i)
-                ax.scatter(
-                    x, vals,
-                    color=config['colors'].get(g, DEFAULT_COLORS[i % len(DEFAULT_COLORS)]),
-                    edgecolor=config.get('bar_edge_color', 'black'),
-                    alpha=config['alpha'],
-                    s=60,
-                    linewidths=config['bar_linewidth']
-                )
-            # ensure the x-axis shows your group names
-            ax.set_xticks(list(range(len(groups))))
-            ax.set_xticklabels(groups)
-        elif plot_type == "Raincloud":
-            # --- Use systematic positioning with group_spacing like in stats_functions.py ---
-            ax.clear()
-            import numpy as np
-            from scipy import stats
+            # Use the unified DataVisualizer.plot_from_config for preview
+            import matplotlib.pyplot as plt
+            from stats_functions import DataVisualizer
             
-            # Prepare data
-            data_x = [np.array(samples[g]) for g in groups]
-            n_groups = len(groups)
-            
-            # Use group_spacing for systematic positioning (consistent with stats_functions.py)
-            group_spacing = 0.5  # Default spacing for compact visualization
-            positions = [i * group_spacing for i in range(n_groups)]
-            
-            # Use the CORRECT colors from Live Preview (pink/green-like colors)
-            boxplots_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
-            violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
-            scatter_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
-            
-            # Create horizontal raincloud plot with systematic positions
-            bp = ax.boxplot(data_x, patch_artist=True, vert=False, positions=positions)
-            for patch, color in zip(bp['boxes'], boxplots_colors):
-                patch.set_facecolor(color)
-                patch.set_alpha(0.4)
-                
-            # Violinplot with systematic positions
-            vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False, positions=positions)
-            for idx, b in enumerate(vp['bodies']):
-                pos = positions[idx]
-                # Only show upper half (half-violin)
-                b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], pos, pos + group_spacing)
-                b.set_color(violin_colors[idx % len(violin_colors)])
-                
-            # Scatter points with systematic positioning
-            for idx, features in enumerate(data_x):
-                pos = positions[idx]
-                y = np.full(len(features), pos - group_spacing * 0.2)  # Offset for scatter
-                idxs = np.arange(len(y))
-                out = y.astype(float)
-                out.flat[idxs] += np.random.uniform(low=-0.05, high=0.05, size=len(idxs))
-                y = out
-                ax.scatter(features, y, s=10, c=scatter_colors[idx % len(scatter_colors)], alpha=0.8)
-                
-            # Set up axes and labels with systematic positions
-            ax.set_yticks(positions)
-            ax.set_yticklabels(groups, fontsize=config['fontsize_groupnames'])
-            ax.set_xlabel("Values", fontsize=config['fontsize_axis'])
-            ax.set_ylabel("")
-            
-            # Set proper limits like in Live Preview - make y-axis more compact
-            if data_x and any(len(d) > 0 for d in data_x):
-                ax.set_xlim(left=min([min(d) for d in data_x if len(d)>0])-1, right=max([max(d) for d in data_x if len(d)>0])+1)
-            ax.set_ylim(0.6, n_groups+0.4)
-            ax.grid(False)
-
-        # Set axis line width
-        for spine in ax.spines.values():
-            spine.set_linewidth(config['axis_linewidth'])
-
-        # Despine if requested
-        if config['despine']:
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-
-        # Grid with specified line width
-        if config['grid']:
-            ax.grid(True, axis='y', alpha=0.2, linewidth=config['gridline_width'])
-
-        # Minor Ticks
-        if config['minor_ticks']:
-            ax.minorticks_on()
-            ax.tick_params(which='minor', length=3, color='black', width=0.5)
-
-        # Log-Scale
-        if config['logy']:
-            ax.set_yscale('log')
-        if config['logx']:
-            ax.set_xscale('log')
-
-        # Reference line
-        if config['refline']:
-            DataVisualizer.add_reference_line(ax, y=0)
-
-        # Panel labels
-        if config['panel_labels']:
-            DataVisualizer.add_panel_labels(self.figure, [ax])
-
-        # Value annotations (only for bar plot)
-        if config['value_annotations'] and bars is not None:
-            DataVisualizer.annotate_bar_values(ax, bars, means, errors, font_size=config['fontsize_ticks'])
-
-        # Apply aspect ratio if specified
-        if config['aspect'] is not None:
-            ax.set_aspect(config['aspect'])
-
-        # Font sizes for ticks and group labels
-        plt.setp(ax.get_xticklabels(), fontsize=config['fontsize_groupnames'])
-        plt.setp(ax.get_yticklabels(), fontsize=config['fontsize_ticks'])
-
-        # Axes labels and title
-        ax.set_xlabel("Group", fontsize=config['fontsize_axis'])
-        ax.set_ylabel("Value", fontsize=config['fontsize_axis'])
-
-        # Only show title if requested
-        if config['show_title']:
-            ax.set_title("Preview", fontsize=config['fontsize_title'])
-
-        # Example of significance indicators (for preview only)
-        if config['significance_mode'] == 'letters':
-            if plot_type == "Raincloud":
-                # Für horizontale Raincloud: Buchstaben rechts von den Plot-Elementen
-                # Use systematic positioning like in stats_functions.py
-                group_spacing = 0.5  # Same spacing as used in Raincloud plot
-                positions = [i * group_spacing for i in range(len(groups))]
-                if data_x and any(len(d) > 0 for d in data_x):
-                    x_max = max([max(d) for d in data_x if len(d) > 0])
-                    for i, group in enumerate(groups):
-                        ax.text(x_max * 1.1, positions[i], 'a', ha='left', va='center', fontsize=10)
+            # Check if we have the new preview widget
+            if hasattr(self, 'plot_preview_widget') and self.plot_preview_widget:
+                # Use the new preview widget
+                config = self._convert_old_config_to_new(plot_config)
+                self.plot_preview_widget.set_data(plot_config['groups'], plot_samples)
+                self.plot_preview_widget.update_plot(config)
+            elif hasattr(self, 'figure'):
+                # Use the old figure/canvas approach
+                fig = self.figure
+                fig.clear()
+                ax = fig.add_subplot(111)
+                config = self._convert_old_config_to_new(plot_config)
+                try:
+                    DataVisualizer.plot_from_config(ax, plot_config['groups'], plot_samples, config)
+                    fig.tight_layout()
+                    if hasattr(self, 'canvas'):
+                        self.canvas.draw()
+                except Exception as e:
+                    print(f"Error in DataVisualizer.plot_from_config: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback to simple preview
+                    ax.text(0.5, 0.5, f'Error creating preview:\n{str(e)}', 
+                           ha='center', va='center', transform=ax.transAxes,
+                           fontsize=10, color='red')
+                    fig.tight_layout()
+                    if hasattr(self, 'canvas'):
+                        self.canvas.draw()
             else:
-                # Für vertikale Plots: wie bisher
-                y_pos = max(means) * 1.1 if means else 1
-                for i, group in enumerate(groups):
-                    ax.text(i, y_pos, 'a', ha='center', fontsize=10)
-        elif config['significance_mode'] == 'bars':
-            # Example significance bar
-            if len(groups) >= 2 and means:
-                y_pos = max(means) * 1.15
-                ax.plot([0, 1], [y_pos, y_pos], 'k-', lw=1)
-                ax.text(0.5, y_pos*1.02, '*', ha='center', fontsize=12)
+                print("Warning: No preview widget or figure available")
+                
+        except Exception as e:
+            print(f"Error in preview_plot: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Preview Error", f"An error occurred while creating the preview: {str(e)}")
 
-        self.figure.tight_layout()
-        self.canvas.draw()
+    def update_preview_on_selection_change(self):
+        """Aktualisiert die Preview wenn sich die Gruppenselektion ändert."""
+        if not PLOT_MODULES_AVAILABLE or not self.preview_widget:
+            return
+            
+        selected_items = self.groups_list.selectedItems()
+        if selected_items and self.samples:
+            selected_groups = [item.text() for item in selected_items]
+            
+            # Verwende globale Einstellungen oder Standard-Config
+            config = getattr(self, 'global_appearance_settings', {})
+            if not config:
+                config = {
+                    'plot_type': 'Bar',
+                    'colors': {group: DEFAULT_COLORS[i % len(DEFAULT_COLORS)] 
+                              for i, group in enumerate(selected_groups)},
+                    'show_points': True,
+                    'show_significance_letters': True
+                }
+            
+            self.preview_widget.set_data(selected_groups, self.samples)
+            self.preview_widget.update_plot(config)
+    
+    def integrate_statistical_results(self, plot_config, statistical_results):
+        """
+        Integriert statistische Ergebnisse (Signifikanzen, Post-hoc Tests) in die Plot-Konfiguration.
+        
+        Parameters:
+        -----------
+        plot_config : dict
+            Bestehende Plot-Konfiguration
+        statistical_results : dict
+            Ergebnisse der statistischen Analyse
+        
+        Returns:
+        --------
+        dict
+            Erweiterte Plot-Konfiguration mit statistischen Informationen
+        """
+        # Konvertiere zur neuen Konfiguration
+        config = self._convert_old_config_to_new(plot_config)
+        
+        # Füge statistische Informationen hinzu
+        if statistical_results:
+            # P-Wert für Titel oder Beschriftung
+            if 'p_value' in statistical_results:
+                p_val = statistical_results['p_value']
+                if isinstance(p_val, (int, float)):
+                    if p_val < 0.001:
+                        p_text = "p < 0.001"
+                    else:
+                        p_text = f"p = {p_val:.4f}"
+                    
+                    # Füge P-Wert zum Titel hinzu wenn gewünscht
+                    current_title = config.get('title', '')
+                    if current_title:
+                        config['title'] = f"{current_title} ({p_text})"
+                    else:
+                        config['title'] = f"Analysis Results ({p_text})"
+            
+            # Signifikanzbuchstaben aktivieren wenn Post-hoc Tests vorhanden
+            if 'pairwise_comparisons' in statistical_results and statistical_results['pairwise_comparisons']:
+                config['show_significance_letters'] = True
+                config['pairwise_results'] = statistical_results['pairwise_comparisons']
+            
+            # Test-Empfehlung für Signifikanzbuchstaben
+            if 'test_recommendation' in statistical_results:
+                config['test_recommendation'] = statistical_results['test_recommendation']
+            else:
+                config['test_recommendation'] = 'parametric'  # Default
+        
+        return config
+
+    def create_plot_with_statistics(self, groups, title="", statistical_results=None):
+        """
+        Erstellt einen Plot mit integrierten statistischen Ergebnissen.
+        
+        Parameters:
+        -----------
+        groups : list
+            Liste der Gruppennamen
+        title : str
+            Titel für den Plot
+        statistical_results : dict, optional
+            Statistische Analyseergebnisse
+        """
+        if not self.samples:
+            QMessageBox.warning(self, "No data", "No data available for plotting.")
+            return
+        
+        # Basis-Konfiguration
+        plot_config = {
+            'groups': groups,
+            'title': title,
+            'create_plot': True
+        }
+        
+        # Integriere statistische Ergebnisse
+        config = self.integrate_statistical_results(plot_config, statistical_results)
+        
+        # Verwende globale Appearance-Einstellungen wenn verfügbar
+        if hasattr(self, 'global_appearance_settings') and self.global_appearance_settings:
+            config.update(self.global_appearance_settings)
+        
+        try:
+            # Filtere Samples für gewählte Gruppen
+            plot_samples = {}
+            for group in groups:
+                if group in self.samples:
+                    plot_samples[group] = self.samples[group]
+            
+            if not plot_samples:
+                QMessageBox.warning(self, "No data", "No data found for selected groups.")
+                return
+            
+            # Verwende DataVisualizer für finalen Plot
+            plot_type = config.get('plot_type', 'Bar')
+            
+            if plot_type == 'Bar':
+                fig, ax = DataVisualizer.plot_bar(
+                    groups, plot_samples,
+                    title=config.get('title', ''),
+                    colors=config.get('colors', {}),
+                    hatches=config.get('hatches', {}),
+                    alpha=config.get('alpha', 0.8),
+                    show_points=config.get('show_points', True),
+                    show_significance_letters=config.get('show_significance_letters', True),
+                    test_recommendation=config.get('test_recommendation', 'parametric'),
+                    pairwise_results=config.get('pairwise_results'),
+                    **{k: v for k, v in config.items() if k not in ['groups', 'title', 'colors', 'hatches', 'alpha', 'show_points', 'show_significance_letters', 'test_recommendation', 'pairwise_results']}
+                )
+            elif plot_type == 'Box':
+                fig, ax = DataVisualizer.plot_box(
+                    groups, plot_samples,
+                    title=config.get('title', ''),
+                    colors=config.get('colors', {}),
+                    show_points=config.get('show_points', True),
+                    show_significance_letters=config.get('show_significance_letters', True),
+                    test_recommendation=config.get('test_recommendation', 'parametric'),
+                    **{k: v for k, v in config.items() if k not in ['groups', 'title', 'colors', 'show_points', 'show_significance_letters', 'test_recommendation']}
+                )
+            elif plot_type == 'Violin':
+                fig, ax = DataVisualizer.plot_violin(
+                    groups, plot_samples,
+                    title=config.get('title', ''),
+                    colors=config.get('colors', {}),
+                    show_points=config.get('show_points', True),
+                    show_significance_letters=config.get('show_significance_letters', True),
+                    test_recommendation=config.get('test_recommendation', 'parametric'),
+                    **{k: v for k, v in config.items() if k not in ['groups', 'title', 'colors', 'show_points', 'show_significance_letters', 'test_recommendation']}
+                )
+            elif plot_type == 'Raincloud':
+                fig, ax = DataVisualizer.plot_raincloud(
+                    groups, plot_samples,
+                    title=config.get('title', ''),
+                    colors=config.get('colors', {}),
+                    show_points=config.get('show_points', True),
+                    show_significance_letters=config.get('show_significance_letters', True),
+                    test_recommendation=config.get('test_recommendation', 'parametric'),
+                    **{k: v for k, v in config.items() if k not in ['groups', 'title', 'colors', 'show_points', 'show_significance_letters', 'test_recommendation']}
+                )
+            
+            plt.show()
+            
+        except Exception as e:
+            print(f"Error creating plot: {str(e)}")
+            QMessageBox.critical(self, "Plot Error", f"An error occurred while creating the plot: {str(e)}")
+    
+    def demo_new_plot_system(self):
+        """
+        Demo-Methode, die das neue Plot-System mit allen Features zeigt.
+        """
+        if not self.samples or not self.available_groups:
+            QMessageBox.warning(self, "No data", "Please load data first.")
+            return
+        
+        # Wähle die ersten 3-4 Gruppen für Demo
+        demo_groups = self.available_groups[:min(4, len(self.available_groups))]
+        
+        # Simuliere statistische Ergebnisse
+        import numpy as np
+        demo_statistical_results = {
+            'test': 'One-Way ANOVA',
+            'p_value': 0.023,
+            'test_recommendation': 'parametric',
+            'pairwise_comparisons': [
+                {'group1': demo_groups[0], 'group2': demo_groups[1], 'p_value': 0.045, 'significant': True},
+                {'group1': demo_groups[0], 'group2': demo_groups[2], 'p_value': 0.156, 'significant': False}
+            ] if len(demo_groups) >= 3 else []
+        }
+        
+        # Erstelle Plot mit allen Features
+        self.create_plot_with_statistics(
+            groups=demo_groups,
+            title="Demo Analysis with Statistics",
+            statistical_results=demo_statistical_results
+        )
+        
+        QMessageBox.information(self, "Demo completed", 
+                               f"Created demo plot for groups: {', '.join(demo_groups)}\n"
+                               f"With simulated statistical results (p = {demo_statistical_results['p_value']})")
+        
 
 
 class TransformationDialog(QDialog):
@@ -1949,6 +1558,9 @@ class StatisticalAnalyzerApp(QMainWindow):
         self.available_groups = []
         self.numeric_columns = []
         self.plot_configs = []
+        
+        # Temporäre Plot-Appearance-Einstellungen (bleiben bis Programm geschlossen wird)
+        self.temp_plot_appearance_settings = None
         
         # Initialize UI elements
         self.init_ui()
@@ -2274,17 +1886,26 @@ class StatisticalAnalyzerApp(QMainWindow):
         groups_and_plots.addWidget(plots_section)
         main_layout.addLayout(groups_and_plots)
         
-        # Plot preview
+        # Plot preview - use new PlotPreviewWidget
         preview_section = QGroupBox("Live Plot Preview")
         preview_section.setObjectName("grpPlotPreview")
         preview_section.setToolTip("Shows preview of selected groups. Updates automatically when data changes.")
         preview_layout = QVBoxLayout(preview_section)
         preview_layout.setObjectName("lyoPreviewSection")
         
-        self.figure = Figure(figsize=(8, 6), dpi=100)
-        self.canvas = FigureCanvas(self.figure)
-        self.canvas.setObjectName("canvasPlotPreview")
-        preview_layout.addWidget(self.canvas)
+        # Try to import and use the new PlotPreviewWidget
+        try:
+            from plot_preview import PlotPreviewWidget
+            self.plot_preview_widget = PlotPreviewWidget()
+            self.plot_preview_widget.setObjectName("widgetPlotPreview")
+            preview_layout.addWidget(self.plot_preview_widget)
+        except ImportError:
+            # Fallback to old matplotlib canvas
+            self.figure = Figure(figsize=(8, 6), dpi=100)
+            self.canvas = FigureCanvas(self.figure)
+            self.canvas.setObjectName("canvasPlotPreview")
+            preview_layout.addWidget(self.canvas)
+            self.plot_preview_widget = None
         
         main_layout.addWidget(preview_section)
 
@@ -2703,24 +2324,18 @@ class StatisticalAnalyzerApp(QMainWindow):
     
     def configure_plot(self, groups):
         """Opens a dialog to configure a plot with the selected groups."""
-        dialog = PlotConfigDialog(groups, self)
-        if dialog.exec_() == QDialog.Accepted:
-            config = dialog.get_config()
+        # Open the main plot configuration dialog first
+        dlg = PlotConfigDialog(groups, parent=self)
+        if dlg.exec_() == dlg.Accepted:
+            config = dlg.get_config()
+            if config is None:
+                return
             self.plot_configs.append(config)
-            
-            # Display in the plot list
-            if config['file_name']:
-                plot_item_text = f"Plot: {config['file_name']}"
-            else:
-                title_text = config['title'] if config['title'] else f"Plot with {', '.join(config['groups'])}"
-                plot_item_text = f"Plot: {title_text}"
-            if not config['create_plot']:
-                plot_item_text += " (analysis only)"
-            
+            plot_item_text = f"Plot: {config.get('title') or ', '.join(config.get('groups', []))}"
             self.plots_list.addItem(plot_item_text)
-            
-            # Create preview
-            self.preview_plot(len(self.plot_configs) - 1)
+            # Only show preview if 'create_plot' is checked
+            if config.get('create_plot', False):
+                self.preview_plot(len(self.plot_configs) - 1)
     
     def edit_plot_config(self, item):
         """Edits the configuration of a selected plot."""
@@ -2731,64 +2346,39 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         config = self.plot_configs[index]
         
-        dialog = PlotConfigDialog(config['groups'], self)
-        if 'group_order' in config:
-            dialog.order_list.clear()
-            for group in config['group_order']:
-                dialog.order_list.addItem(group)
+        # KORREKTUR: Gehe zuerst zu PlotConfigDialog, nicht direkt zu PlotAestheticsDialog
+        dlg = PlotConfigDialog(config.get('groups', []), parent=self)
         
-        # Set all properties of the dialog
-        dialog.set_title(config.get('title', ''))
-        dialog.set_x_label(config.get('x_label', ''))
-        dialog.set_y_label(config.get('y_label', ''))
-        dialog.set_file_name(config.get('file_name', ''))
-
-        
-        # Dependent samples
-        dialog.dependent_check.setChecked(config.get('dependent', False))
-        
-        # Create plot or skip
-        dialog.create_plot_check.setChecked(config.get('create_plot', True))
-        
-        # Error bar type
-        if config.get('error_type', 'sd') == 'se':
-            dialog.error_type_sem.setChecked(True)
-        else:
-            dialog.error_type_sd.setChecked(True)
-        
-        # Set comparisons
-        dialog.comparisons = config.get('comparisons', [])
-        dialog.comparisons_list.clear()
-        for comp in dialog.comparisons:
-            dialog.comparisons_list.addItem(f"{comp['group1']} vs {comp['group2']} ({comp.get('test_type', 'Unknown')})")
-        
-        # Two-Way ANOVA additional factors
-        if 'additional_factors' in config and config['additional_factors']:
-            dialog.additional_factors = config['additional_factors']
-        
-        # WICHTIG: Appearance settings wiederherstellen
-        if 'appearance_settings' in config:
-            dialog.appearance_settings = config['appearance_settings']
-            # Update button text to reflect that settings are already configured
-            dialog.update_appearance_button_text()
-        
-        if dialog.exec_() == QDialog.Accepted:
-            # Update the configuration with new values
-            self.plot_configs[index] = dialog.get_config()
+        # Lade die bestehende Konfiguration in den Dialog
+        if 'title' in config:
+            dlg.title_edit.setText(config['title'])
+        if 'x_label' in config:
+            dlg.x_label_edit.setText(config['x_label'])
+        if 'y_label' in config:
+            dlg.y_label_edit.setText(config['y_label'])
+        if 'file_name' in config:
+            dlg.file_name_edit.setText(config['file_name'])
+        if 'dependent' in config:
+            dlg.dependent_check.setChecked(config['dependent'])
+        if 'create_plot' in config:
+            dlg.create_plot_check.setChecked(config['create_plot'])
+        if 'error_type' in config:
+            # Setze den entsprechenden RadioButton basierend auf error_type
+            if config['error_type'] == 'se':
+                dlg.error_type_sem.setChecked(True)
+            else:  # default oder 'sd'
+                dlg.error_type_sd.setChecked(True)
             
-            # Update display in the list
-            if self.plot_configs[index].get('file_name'):
-                plot_item_text = f"Plot: {self.plot_configs[index]['file_name']}"
-            else:
-                title_text = self.plot_configs[index].get('title') if self.plot_configs[index].get('title') else f"Plot with {', '.join(self.plot_configs[index]['groups'])}"
-                plot_item_text = f"Plot: {title_text}"
-                
-            if not self.plot_configs[index].get('create_plot', True):
-                plot_item_text += " (analysis only)"
-                
-            item.setText(plot_item_text);
+        if dlg.exec_() == dlg.Accepted:
+            # Hole die neue Konfiguration und merge mit der alten
+            new_config = dlg.get_config()
+            # Behalte appearance_settings wenn vorhanden
+            if 'appearance_settings' in config:
+                new_config['appearance_settings'] = config['appearance_settings']
             
-            # Update the preview
+            self.plot_configs[index] = new_config
+            plot_item_text = f"Plot: {new_config.get('title') or ', '.join(new_config.get('groups', []))}"
+            item.setText(plot_item_text)
             self.preview_plot(index)
     
     def get_analysis_params(self):
@@ -2920,8 +2510,11 @@ class StatisticalAnalyzerApp(QMainWindow):
             
             # Clear the preview if no plot is left
             if len(self.plot_configs) == 0:
-                self.figure.clear()
-                self.canvas.draw()
+                if hasattr(self, 'plot_preview_widget') and self.plot_preview_widget:
+                    self.plot_preview_widget._show_placeholder()
+                elif hasattr(self, 'figure') and hasattr(self, 'canvas'):
+                    self.figure.clear()
+                    self.canvas.draw()
     
     def preview_selected_plot(self):
         """Creates a preview of the selected plot."""
@@ -2944,6 +2537,28 @@ class StatisticalAnalyzerApp(QMainWindow):
         plot_config = self.plot_configs[plot_idx]
 
         try:
+            # Check if we have the new PlotPreviewWidget
+            if hasattr(self, 'plot_preview_widget') and self.plot_preview_widget:
+                # Use the new preview widget
+                groups = plot_config.get('groups', [])
+                samples = {group: self.samples[group] for group in groups if group in self.samples}
+                
+                if samples:
+                    self.plot_preview_widget.set_data(groups, samples)
+                    
+                    # Convert appearance settings to new format if available
+                    appearance = plot_config.get('appearance_settings', {})
+                    if appearance:
+                        self.plot_preview_widget.update_plot(appearance)
+                    else:
+                        # Use default preview
+                        self.plot_preview_widget.update_plot({'plot_type': 'Bar'})
+                return
+            
+            # Fallback to old matplotlib canvas (if new widget not available)
+            if not hasattr(self, 'figure'):
+                return
+                
             # Clear the figure
             self.figure.clear()
             ax = self.figure.add_subplot(111)
@@ -2974,10 +2589,19 @@ class StatisticalAnalyzerApp(QMainWindow):
             use_appearance = plot_config.get('create_plot', True) and appearance is not None
 
             if use_appearance:
-                colors = [appearance['colors'].get(group, DEFAULT_COLORS[i % len(DEFAULT_COLORS)])
-                        for i, group in enumerate(plot_config['groups'])]
-                hatches = [appearance['hatches'].get(group, DEFAULT_HATCHES[i % len(DEFAULT_HATCHES)])
-                        for i, group in enumerate(plot_config['groups'])]
+                # Handle both old and new format
+                if 'colors' in appearance and isinstance(appearance['colors'], dict):
+                    colors = [appearance['colors'].get(group, DEFAULT_COLORS[i % len(DEFAULT_COLORS)])
+                            for i, group in enumerate(plot_config['groups'])]
+                else:
+                    colors = DEFAULT_COLORS[:len(plot_config['groups'])]
+                
+                if 'hatches' in appearance and isinstance(appearance['hatches'], dict):
+                    hatches = [appearance['hatches'].get(group, DEFAULT_HATCHES[i % len(DEFAULT_HATCHES)])
+                            for i, group in enumerate(plot_config['groups'])]
+                else:
+                    hatches = [''] * len(plot_config['groups'])  # No hatches by default
+                
                 alpha = appearance.get('alpha', 0.8)
                 axis_linewidth = appearance.get('axis_linewidth', 0.7)
                 bar_linewidth = appearance.get('bar_linewidth', 1.0)
@@ -3098,18 +2722,6 @@ class StatisticalAnalyzerApp(QMainWindow):
                     x = np.full(len(vals), i + 1)  # violin positions are 1-indexed
                     jitter = np.random.uniform(-0.15, 0.15, size=len(vals))
                     ax.scatter(x + jitter, vals, color='black', alpha=0.5, zorder=3, s=30, edgecolors='white', linewidths=0.3)
-            elif plot_type == "Strip":
-                for i, g in enumerate(groups):
-                    vals = samples[g]
-                    x = np.full(len(vals), i)
-                    ax.scatter(
-                        x, vals,
-                        color=colors[i],
-                        edgecolor=bar_edge_color,
-                        alpha=alpha,
-                        s=60,
-                        linewidths=bar_linewidth
-                    )
             elif plot_type == "Raincloud":
                 # --- Raincloud-Plot mit systematischer Positionierung wie in stats_functions.py ---
                 ax.clear()
@@ -3197,8 +2809,10 @@ class StatisticalAnalyzerApp(QMainWindow):
             for spine in ax.spines.values():
                 spine.set_linewidth(axis_linewidth)
 
-            self.figure.tight_layout()
-            self.canvas.draw()
+            if hasattr(self, 'figure'):
+                self.figure.tight_layout()
+            if hasattr(self, 'canvas'):
+                self.canvas.draw()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error creating preview: {str(e)}")
             import traceback
@@ -3268,8 +2882,11 @@ class StatisticalAnalyzerApp(QMainWindow):
                 # Clear all plot configurations
                 self.plot_configs.clear()
                 self.plots_list.clear()
-                self.figure.clear()
-                self.canvas.draw()
+                if hasattr(self, 'plot_preview_widget') and self.plot_preview_widget:
+                    self.plot_preview_widget._show_placeholder()
+                elif hasattr(self, 'figure') and hasattr(self, 'canvas'):
+                    self.figure.clear()
+                    self.canvas.draw()
 
         # Add this cleanup code
         import matplotlib.pyplot as plt
@@ -3309,7 +2926,7 @@ class StatisticalAnalyzerApp(QMainWindow):
             'skip_excel': False,  # always write Excel
             'x_label': plot_config.get('x_label'),
             'y_label': plot_config.get('y_label'),
-            'title': plot_config.get('title'),
+            'title': plot_config.get('title', 'Preview'),
             'error_type': plot_config.get('error_type', 'sd'),
             'file_name': plot_config.get('file_name') or "_".join(plot_config['groups']),
             'show_individual_lines': plot_config.get('show_individual_lines', True),
@@ -3322,7 +2939,8 @@ class StatisticalAnalyzerApp(QMainWindow):
             kwargs.update({
                 'plot_type': appearance.get('plot_type', 'Bar'),
                 'dpi': appearance.get('dpi', 300),
-                'aspect': appearance.get('aspect'),
+                'aspect': appearance.get('aspect', None),
+                
                 'font_main': appearance.get('font_main', 'Arial'),
                 'font_axis': appearance.get('font_axis', 'Arial'),
                 'show_title': appearance.get('show_title', True),
@@ -3330,6 +2948,7 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'fontsize_axis': appearance.get('fontsize_axis', 11),
                 'fontsize_ticks': appearance.get('fontsize_ticks', 11),
                 'fontsize_groupnames': appearance.get('fontsize_groupnames', 11),
+                
                 'axis_linewidth': appearance.get('axis_linewidth', 0.7),
                 'bar_linewidth': appearance.get('bar_linewidth', 1.0),
                 'gridline_width': appearance.get('gridline_width', 0.5),
@@ -3338,16 +2957,15 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'logy': appearance.get('logy', False),
                 'logx': appearance.get('logx', False),
                 'despine': appearance.get('despine', True),
+                
                 'alpha': appearance.get('alpha', 0.8),
                 'bar_edge_color': appearance.get('bar_edge_color', 'black'),
+                
                 'refline': appearance.get('refline', False),
                 'panel_labels': appearance.get('panel_labels', False),
                 'value_annotations': appearance.get('value_annotations', False),
                 'significance_mode': appearance.get('significance_mode', 'letters'),
-                'embed_fonts': appearance.get('embed_fonts', False),
-                'add_metadata': appearance.get('add_metadata', False),
-                'colors': [appearance['colors'].get(g) for g in plot_config['groups']],
-                'hatches': [appearance['hatches'].get(g) for g in plot_config['groups']],
+                
                 # Map to plot_bar function parameter names
                 'bar_edge_width': appearance.get('bar_linewidth', 1.0),
                 'point_size': 80,  # Larger default point size
@@ -3442,8 +3060,11 @@ class StatisticalAnalyzerApp(QMainWindow):
                     
                     # Clear preview if no plots left
                     if len(self.plot_configs) == 0:
-                        self.figure.clear()
-                        self.canvas.draw()
+                        if hasattr(self, 'plot_preview_widget') and self.plot_preview_widget:
+                            self.plot_preview_widget._show_placeholder()
+                        elif hasattr(self, 'figure') and hasattr(self, 'canvas'):
+                            self.figure.clear()
+                            self.canvas.draw()
                     break
                     
         except Exception as e:
@@ -3453,8 +3074,11 @@ class StatisticalAnalyzerApp(QMainWindow):
         """Erstellt automatisch eine Preview mit allen verfügbaren Gruppen"""
         if not self.samples or not self.available_groups:
             # Clear preview if no data
-            self.figure.clear()
-            self.canvas.draw()
+            if hasattr(self, 'plot_preview_widget') and self.plot_preview_widget:
+                self.plot_preview_widget._show_placeholder()
+            elif hasattr(self, 'figure') and hasattr(self, 'canvas'):
+                self.figure.clear()
+                self.canvas.draw()
             return
             
         try:
@@ -3468,6 +3092,11 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'create_plot': True
             }
             
+            # WICHTIG: Merge mit temporären Plot-Appearance-Einstellungen
+            if hasattr(self, 'temp_plot_appearance_settings') and self.temp_plot_appearance_settings:
+                temp_config.update(self.temp_plot_appearance_settings)
+                print(f"DEBUG: Using temp appearance settings in preview: {self.temp_plot_appearance_settings}")
+            
             # Use the existing preview_plot logic but with the temp config
             self.preview_auto_plot(temp_config)
             
@@ -3479,78 +3108,18 @@ class StatisticalAnalyzerApp(QMainWindow):
     def preview_auto_plot(self, plot_config):
         """Erstellt eine automatische Preview basierend auf einer temporären Konfiguration"""
         try:
-            # Clear the figure
-            self.figure.clear()
-            ax = self.figure.add_subplot(111)
-
-            # Prepare data
-            plot_samples = {}
-            for group in plot_config.get('groups', []):
-                if self.samples and group in self.samples:
-                    plot_samples[group] = self.samples[group]
-
-            if not plot_samples:
-                # Show empty preview
-                ax.text(0.5, 0.5, 'No data available\nSelect groups and configure plot', 
-                       ha='center', va='center', transform=ax.transAxes,
-                       fontsize=12, color='gray')
-                self.figure.tight_layout()
-                self.canvas.draw()
-                return
-
-            # Use default settings for auto preview
-            groups = plot_config['groups']
-            samples = {g: plot_samples[g] for g in groups}
-            means = [np.mean(samples[g]) if samples[g] else 0 for g in groups]
-            errors = [np.std(samples[g]) if samples[g] else 0 for g in groups]
-            
-            # Use default colors
-            colors = [DEFAULT_COLORS[i % len(DEFAULT_COLORS)] for i in range(len(groups))]
-            
-            # Simple bar plot
-            bars = ax.bar(
-                groups, means, yerr=errors,
-                color=colors,
-                alpha=0.8,
-                edgecolor='black',
-                linewidth=0.8
-            )
-
-            # Individual points (jittered)
-            for i, g in enumerate(groups):
-                vals = samples[g]
-                x = np.full(len(vals), i)
-                jitter = np.random.uniform(-0.2, 0.2, size=len(vals))
-                ax.scatter(x + jitter, vals, color='black', alpha=0.6, zorder=3, s=30)
-
-            # Add example significance letters for preview
-            if len(groups) >= 2:
-                y_max = max(means) if means else 1
-                letters = ['a', 'b', 'c', 'd', 'e'][:len(groups)]
-                for i, letter in enumerate(letters):
-                    ax.text(i, y_max * 1.1, letter, ha='center', va='bottom', fontsize=10, fontweight='bold')
-
-            # Basic formatting with new default font sizes
-            ax.set_title(plot_config.get('title', 'Data Preview'), fontsize=11)
-            if plot_config.get('x_label'):
-                ax.set_xlabel(plot_config['x_label'], fontsize=11)
-            if plot_config.get('y_label'):
-                ax.set_ylabel(plot_config['y_label'], fontsize=11)
-            
-            # Set tick label sizes
-            plt.setp(ax.get_xticklabels(), fontsize=11)
-            plt.setp(ax.get_yticklabels(), fontsize=11)
-            
-            # Rotate x-axis labels if many groups
-            if len(groups) > 3:
-                ax.tick_params(axis='x', rotation=45)
-            
-            # Clean styling - no grid by default, despine enabled
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-
-            self.figure.tight_layout()
-            self.canvas.draw()
+            # Use the preview widget if available
+            if hasattr(self, 'plot_preview_widget') and self.plot_preview_widget:
+                # Set data in the preview widget
+                if hasattr(self, 'groups') and hasattr(self, 'samples'):
+                    self.plot_preview_widget.set_data(self.groups, self.samples)
+                    # Update the plot with the configuration
+                    self.plot_preview_widget.update_plot(plot_config)
+                else:
+                    # Show placeholder if no data
+                    self.plot_preview_widget._show_placeholder()
+            else:
+                print("Warning: plot_preview_widget not available")
             
         except Exception as e:
             print(f"Error in preview_auto_plot: {e}")
@@ -3713,6 +3282,12 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         dlg.exec_()
     
+    def closeEvent(self, event):
+        """Cleanup temporäre Daten beim Schließen des Programms"""
+        print("DEBUG: Cleaning up temporary plot appearance settings...")
+        self.temp_plot_appearance_settings = None
+        super().closeEvent(event)
+    
     def run_multi_dataset_analysis(self):
         """Runs separate analyses for multiple datasets, 
         with individual plot configuration and a shared Excel file."""
@@ -3766,16 +3341,17 @@ class StatisticalAnalyzerApp(QMainWindow):
                     print(f"DEBUG MULTI:   ► iterating dataset #{i+1}: '{column}'")
                     print(f"DEBUG MULTI:      → plot_configs keys so far: {list(plot_configs.keys())}")
                     # --- Plot configuration per dataset ---
-                    config_dialog = PlotConfigDialog(selected_groups, self)
-                    config_dialog.setWindowTitle(f"Configure plot for '{column}' ({i+1}/{len(self.selected_columns)})")
-                    config_dialog.set_title(column)
-                    config_dialog.set_file_name(f"{column}_analysis")
-                    
-                    if config_dialog.exec_() != QDialog.Accepted:
+                    dlg = PlotAestheticsDialog(
+                        selected_groups,
+                        self.samples if hasattr(self, "samples") else {},
+                        config={"title": column, "file_name": f"{column}_analysis"},
+                        parent=self
+                    )
+                    dlg.setWindowTitle(f"Configure plot for '{column}' ({i+1}/{len(self.selected_columns)})")
+                    if dlg.exec_() != dlg.Accepted:
                         print(f"Configuration for {column} cancelled")
                         continue
-                        
-                    plot_config = config_dialog.get_config()
+                    plot_config = dlg.get_config()
                     plot_configs[column] = plot_config
                     print(f"Configuration for {column} saved")
 

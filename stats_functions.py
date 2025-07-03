@@ -4143,6 +4143,31 @@ class DataVisualizer:
     }
     
     @staticmethod
+    def _auto_adjust_figure_size(width, height, groups, plot_type='Bar'):
+        """Automatische Größenanpassung basierend auf Gruppenanzahl"""
+        num_groups = len(groups)
+        
+        if num_groups <= 2:
+            return width, height
+            
+        if plot_type == 'Raincloud':
+            # Raincloud ist horizontal: Höhe muss mit Gruppen skalieren
+            adjusted_width = max(width, 8 + num_groups * 0.5)
+            adjusted_height = max(height, 4 + num_groups * 1.2)
+            # Extra Skalierung für viele Gruppen
+            if num_groups > 6:
+                adjusted_height += (num_groups - 6) * 0.8
+        else:
+            # Bar, Box, Violin sind vertikal: Breite muss mit Gruppen skalieren
+            adjusted_width = max(width, 6 + num_groups * 1.0)
+            adjusted_height = max(height, 6)
+            # Extra Skalierung für viele Gruppen
+            if num_groups > 6:
+                adjusted_width += (num_groups - 6) * 0.5
+                
+        return adjusted_width, adjusted_height
+
+    @staticmethod
     def plot_bar(groups, samples, 
                  # Basic plot settings
                  width=8, height=6, dpi=300,
@@ -4184,7 +4209,7 @@ class DataVisualizer:
                  figure_face_color='white',
                  
                   # Output options
-                 save_plot=True, file_formats=['pdf', 'svg'], 
+                 save_plot=True, file_formats=['png', 'svg'], 
                  file_name=None, group_order=None,
                  
                  # Statistical data
@@ -4198,7 +4223,10 @@ class DataVisualizer:
                  subplot_margins=None, tight_layout=True,
                  
                  # Legend colors
-                 legend_colors=None):
+                 legend_colors=None,
+                 
+                 # Optional ax parameter for direct plotting
+                 ax=None):
       
         # Apply theme
         if theme in DataVisualizer.THEMES:
@@ -4215,6 +4243,13 @@ class DataVisualizer:
         else:
             groups = [g for g in groups if len(samples.get(g, [])) > 0]
         
+        # AUTOMATISCHE GRÖßENANPASSUNG
+        width, height = DataVisualizer._auto_adjust_figure_size(width, height, groups, 'Bar')
+        if group_order is not None:
+            groups = [g for g in group_order if g in samples and len(samples[g]) > 0]
+        else:
+            groups = [g for g in groups if len(samples.get(g, [])) > 0]
+        
         # Color and hatch preparation
         if colors is None:
             if color_palette:
@@ -4225,10 +4260,15 @@ class DataVisualizer:
         colors = DataVisualizer._extend_list(colors, len(groups))
         hatches = DataVisualizer._extend_list(hatches or [''] * len(groups), len(groups))
         
-        # Create figure
-        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
-        fig.patch.set_facecolor(figure_face_color)
-        ax.set_facecolor(background_color)
+        # Create figure nur wenn kein ax übergeben wurde
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+            fig.patch.set_facecolor(figure_face_color)
+            ax.set_facecolor(background_color)
+            created_fig = True
+        else:
+            fig = ax.figure
+            created_fig = False
         
         # Prepare data for plotting
         plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
@@ -4302,7 +4342,7 @@ class DataVisualizer:
             )
         
         # Add legend
-        if show_legend and show_points:
+        if show_legend:
             if legend_colors is not None:
                 # Use the provided legend colors
                 colors_to_use = legend_colors
@@ -4335,18 +4375,18 @@ class DataVisualizer:
         if watermark:
             DataVisualizer._add_watermark(fig, watermark)
         
-        # Adjust layout
-        if tight_layout:
+        # Adjust layout nur wenn neue Figure erstellt wurde
+        if tight_layout and created_fig:
             if subplot_margins:
                 plt.subplots_adjust(**subplot_margins)
             else:
                 fig.tight_layout()
         
-        # Save plot
-        if save_plot:
+        # Save plot nur wenn neue Figure erstellt wurde
+        if save_plot and created_fig:
             DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
         
-        return fig, ax
+        return fig, ax if created_fig else ax
     
     @staticmethod
     def plot_violin(
@@ -4368,12 +4408,14 @@ class DataVisualizer:
         legend_title="Samples", legend_title_size=12,
         spine_style='minimal', background_color='white',
         figure_face_color='white',
-        save_plot=True, file_formats=['pdf', 'svg'],
+        save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
-        legend_colors=None
+        legend_colors=None,
+        # Optional ax parameter for direct plotting
+        ax=None
     ):
 
         if theme in DataVisualizer.THEMES:
@@ -4392,18 +4434,34 @@ class DataVisualizer:
         else:
             groups = [g for g in groups if len(samples.get(g, [])) > 0]
 
+        # AUTOMATISCHE GRÖßENANPASSUNG
+        width, height = DataVisualizer._auto_adjust_figure_size(width, height, groups, 'Violin')
+
         plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
         df = pd.DataFrame(plot_data)
 
-        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
-        fig.patch.set_facecolor(figure_face_color)
-        ax.set_facecolor(background_color)
+        # Create figure nur wenn kein ax übergeben wurde
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+            fig.patch.set_facecolor(figure_face_color)
+            ax.set_facecolor(background_color)
+            created_fig = True
+        else:
+            fig = ax.figure
+            created_fig = False
 
         sns.violinplot(
             x='Group', y='Value', data=df, ax=ax,
             palette=colors, order=groups, width=violin_width,
             linewidth=edge_width, edgecolor=edge_color, alpha=alpha
         )
+        
+        # Apply hatches to violins
+        if any(h for h in hatches):
+            # For violin plots, we need to access the collections (violin bodies)
+            for i, collection in enumerate(ax.collections):
+                if i < len(hatches) and hatches[i] and hasattr(collection, 'set_hatch'):
+                    collection.set_hatch(hatches[i])
 
         if show_points:
             DataVisualizer._add_data_points(
@@ -4455,14 +4513,18 @@ class DataVisualizer:
             DataVisualizer._add_custom_annotations(ax, custom_annotations)
         if watermark:
             DataVisualizer._add_watermark(fig, watermark)
-        if tight_layout:
+        # Adjust layout nur wenn neue Figure erstellt wurde
+        if tight_layout and created_fig:
             if subplot_margins:
                 plt.subplots_adjust(**subplot_margins)
             else:
                 fig.tight_layout()
-        if save_plot:
+        
+        # Save plot nur wenn neue Figure erstellt wurde
+        if save_plot and created_fig:
             DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
-        return fig, ax
+        
+        return fig, ax if created_fig else ax
 
     @staticmethod
     def plot_box(
@@ -4485,12 +4547,14 @@ class DataVisualizer:
         legend_title="Samples", legend_title_size=12,
         spine_style='minimal', background_color='white',
         figure_face_color='white', error_style="caps", 
-        save_plot=True, file_formats=['pdf', 'svg'],
+        save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
-        legend_colors=None
+        legend_colors=None,
+        # Optional ax parameter for direct plotting
+        ax=None
     ):
 
         import seaborn as sns
@@ -4514,18 +4578,34 @@ class DataVisualizer:
         else:
             groups = [g for g in groups if len(samples.get(g, [])) > 0]
 
+        # AUTOMATISCHE GRÖßENANPASSUNG
+        width, height = DataVisualizer._auto_adjust_figure_size(width, height, groups, 'Box')
+
         plot_data = DataVisualizer._prepare_plot_data(groups, samples, colors)
         df = pd.DataFrame(plot_data)
 
-        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
-        fig.patch.set_facecolor(figure_face_color)
-        ax.set_facecolor(background_color)
+        # Create figure nur wenn kein ax übergeben wurde
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+            fig.patch.set_facecolor(figure_face_color)
+            ax.set_facecolor(background_color)
+            created_fig = True
+        else:
+            fig = ax.figure
+            created_fig = False
 
         sns.boxplot(
             x='Group', y='Value', data=df, ax=ax,
             palette=colors, order=groups, width=box_width,
             linewidth=edge_width, fliersize=0, boxprops=dict(alpha=alpha)
         )
+        
+        # Apply hatches to boxes
+        if any(h for h in hatches):
+            for i, patch in enumerate(ax.patches):
+                if i < len(hatches) and hatches[i]:
+                    patch.set_hatch(hatches[i])
+        
         if show_error_bars:
             import numpy as np
             means = [np.mean(samples[g]) for g in groups]
@@ -4591,14 +4671,19 @@ class DataVisualizer:
             DataVisualizer._add_custom_annotations(ax, custom_annotations)
         if watermark:
             DataVisualizer._add_watermark(fig, watermark)
-        if tight_layout:
+        
+        # Adjust layout nur wenn neue Figure erstellt wurde
+        if tight_layout and created_fig:
             if subplot_margins:
                 plt.subplots_adjust(**subplot_margins)
             else:
                 fig.tight_layout()
-        if save_plot:
+        
+        # Save plot nur wenn neue Figure erstellt wurde
+        if save_plot and created_fig:
             DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
-        return fig, ax
+        
+        return fig, ax if created_fig else ax
 
     @staticmethod
     def plot_raincloud(
@@ -4615,19 +4700,27 @@ class DataVisualizer:
         tick_label_size=10, rotate_x_labels=0,
         y_axis_format='auto', y_limits=None, x_limits=None,
         grid_style='none', grid_alpha=0.3,
-        show_legend=True,        legend_position='center right',
+        show_legend=True, legend_position='center right',
         legend_bbox=(1.08, 0.7), legend_fontsize=9,
         legend_title="Samples", legend_title_size=12,
         spine_style='minimal', background_color='white',
         figure_face_color='white',
-        save_plot=True, file_formats=['pdf', 'svg', 'png'],
+        save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
         # Appearance options
         font_main=None, font_axis=None, fontsize_title=None, fontsize_axis=None,
-        fontsize_ticks=None, fontsize_groupnames=None, legend_colors=None, group_spacing=0.5
+        fontsize_ticks=None, fontsize_groupnames=None, legend_colors=None, group_spacing=0.5,
+        # Raincloud-specific color options
+        violin_colors=None, box_colors=None, point_colors=None,
+        # Spacing options
+        point_offset=0.2, point_jitter=0.05,
+        # Line thickness options
+        frame_thickness=0.7, axis_thickness=0.5,
+        # Optional ax parameter for direct plotting
+        ax=None
     ):
         """Creates a raincloud plot (violin + box + points) with half violins above boxplots and data points below."""
         import seaborn as sns
@@ -4666,10 +4759,18 @@ class DataVisualizer:
         else:
             groups = [g for g in groups if len(samples.get(g, [])) > 0]
 
-        # Create figure
-        fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
-        fig.patch.set_facecolor(figure_face_color)
-        ax.set_facecolor(background_color)
+        # AUTOMATISCHE GRÖßENANPASSUNG
+        width, height = DataVisualizer._auto_adjust_figure_size(width, height, groups, 'Raincloud')
+
+        # Create figure nur wenn kein ax übergeben wurde
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(width, height), dpi=dpi)
+            fig.patch.set_facecolor(figure_face_color)
+            ax.set_facecolor(background_color)
+            created_fig = True
+        else:
+            fig = ax.figure
+            created_fig = False
         
         # Use the CORRECT Raincloud implementation from Live Preview
         ax.clear()
@@ -4678,22 +4779,33 @@ class DataVisualizer:
         data_x = [np.array(data) for data in [samples[group] for group in groups]]
         n_groups = len(groups)
         
-        # Use the CORRECT colors from Live Preview (pink/green-like colors)
-        boxplots_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
-        violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
-        scatter_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
+        # Use custom colors if provided, otherwise use defaults
+        if violin_colors is None:
+            violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
+        if box_colors is None:
+            box_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
+        if point_colors is None:
+            point_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
+        
+        # Convert dictionary colors to lists if needed
+        if isinstance(violin_colors, dict):
+            violin_colors = [violin_colors.get(group, "thistle") for group in groups]
+        if isinstance(box_colors, dict):
+            box_colors = [box_colors.get(group, "yellowgreen") for group in groups]
+        if isinstance(point_colors, dict):
+            point_colors = [point_colors.get(group, "tomato") for group in groups]
         
         # Use these colors for the legend as well
-        actual_legend_colors = {groups[i]: boxplots_colors[i % len(boxplots_colors)] for i in range(len(groups))}
+        actual_legend_colors = {groups[i]: box_colors[i % len(box_colors)] for i in range(len(groups))}
         
         # Calculate explicit positions based on group_spacing
         positions = np.arange(1, n_groups+1) * group_spacing
         
         # Create horizontal raincloud plot with explicit positions
         bp = ax.boxplot(data_x, patch_artist=True, vert=False, positions=positions)
-        for patch, color in zip(bp['boxes'], boxplots_colors):
+        for patch, color in zip(bp['boxes'], box_colors):
             patch.set_facecolor(color)
-            patch.set_alpha(0.4)
+            patch.set_alpha(alpha)
             
         # Violinplot with correct orientation and explicit positions
         vp = ax.violinplot(data_x, points=500, showmeans=False, showextrema=False, showmedians=False, vert=False, positions=positions)
@@ -4704,14 +4816,15 @@ class DataVisualizer:
             b.get_paths()[0].vertices[:, 1] = np.clip(b.get_paths()[0].vertices[:, 1], pos, pos+1)
             b.set_color(violin_colors[idx % len(violin_colors)])
             
-        # Scatter points with correct positioning based on positions
+        # Scatter points with correct positioning based on positions - improved spacing
         for idx, features in enumerate(data_x):
-            y = np.full(len(features), positions[idx] - 0.2)  # Position scatter points below center
+            y = np.full(len(features), positions[idx] - point_offset)  # Use configurable offset
             idxs = np.arange(len(y))
             out = y.astype(float)
-            out.flat[idxs] += np.random.uniform(low=-.05, high=.05, size=len(idxs))
+            # Use configurable jitter strength
+            out.flat[idxs] += np.random.uniform(low=-point_jitter, high=point_jitter, size=len(idxs))
             y = out
-            ax.scatter(features, y, s=10, c=scatter_colors[idx % len(scatter_colors)], alpha=0.8)
+            ax.scatter(features, y, s=point_size/8, c=point_colors[idx % len(point_colors)], alpha=point_alpha)
             
         # Set up axes and labels with explicit positions
         ax.set_yticks(positions)
@@ -4733,22 +4846,27 @@ class DataVisualizer:
         ax.set_ylim(positions[0] - group_spacing*0.4, positions[-1] + group_spacing*0.4)
         ax.grid(False)
         
-        # Make sure spines are consistent
+        # Make sure spines are consistent with configurable thickness
         for spine in ax.spines.values():
-            spine.set_linewidth(0.7)
+            spine.set_linewidth(frame_thickness)
+        
+        # Set axis line thickness
+        ax.tick_params(axis='both', which='major', width=axis_thickness)
+        ax.tick_params(axis='both', which='minor', width=axis_thickness * 0.7)
         
         # Remove y-ticks if too many groups
         if len(groups) > 10:
             ax.set_yticks([])
         
-        # Grid with specified line width (like in preview)
+        # Grid with configurable line width
         if grid_style and grid_style != 'none':
+            grid_linewidth = axis_thickness * 0.7  # Grid lines slightly thinner than axis
             if grid_style == 'major':
-                ax.grid(True, axis='x', which='major', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+                ax.grid(True, axis='x', which='major', alpha=grid_alpha, linestyle='-', linewidth=grid_linewidth)
             elif grid_style == 'minor':
-                ax.grid(True, axis='x', which='minor', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+                ax.grid(True, axis='x', which='minor', alpha=grid_alpha, linestyle='-', linewidth=grid_linewidth)
             elif grid_style == 'both':
-                ax.grid(True, axis='x', which='both', alpha=grid_alpha, linestyle='-', linewidth=0.5)
+                ax.grid(True, axis='x', which='both', alpha=grid_alpha, linestyle='-', linewidth=grid_linewidth)
         else:
             ax.grid(False)
             
@@ -4806,7 +4924,7 @@ class DataVisualizer:
             DataVisualizer._add_watermark(fig, watermark)
             
         # Layout adjustments - optimize for raincloud plots
-        if tight_layout:
+        if tight_layout and created_fig:
             if subplot_margins:
                 plt.subplots_adjust(**subplot_margins)
             else:
@@ -4814,10 +4932,10 @@ class DataVisualizer:
                 fig.tight_layout(rect=[0, 0.05, 0.85, 0.93])
                 
         # Save plot if requested
-        if save_plot:
+        if save_plot and created_fig:
             DataVisualizer._save_plot(fig, file_name, groups, file_formats, dpi)
             
-        return fig, ax
+        return fig, ax if created_fig else ax
     
     # Helper methods
     @staticmethod
@@ -4863,10 +4981,23 @@ class DataVisualizer:
                 
                 for j, (val, jit) in enumerate(zip(values, jitter)):
                     marker_idx = j % len(markers)
-                    ax.scatter(x_pos + jit, val, color='black', 
-                             marker=markers[marker_idx], s=size, 
-                             zorder=3, alpha=alpha, edgecolors='white',
-                             linewidth=edge_width)
+                    marker = markers[marker_idx]
+                    
+                    # Nur für filled markers edgecolors setzen
+                    scatter_kwargs = {
+                        'color': 'black',
+                        'marker': marker,
+                        's': size,
+                        'zorder': 3,
+                        'alpha': alpha
+                    }
+                    
+                    # Nur für filled markers (nicht +, x) edgecolors setzen
+                    if marker not in ['+', 'x']:
+                        scatter_kwargs['edgecolors'] = 'white'
+                        scatter_kwargs['linewidth'] = edge_width
+                    
+                    ax.scatter(x_pos + jit, val, **scatter_kwargs)
             
             elif style == 'strip':
                 # Use seaborn stripplot
@@ -5146,13 +5277,13 @@ class DataVisualizer:
             x_positions = []
             for group in groups:
                 values = samples[group]
-                if values:
+                if hasattr(values, '__len__') and len(values) > 0:
                     x_positions.append(max(values))
             
             if x_positions:
                 x_max = max(x_positions)
                 # Reduce the offset to move letters closer to the plots (about 1.5-2 cm)
-                x_range = max(x_positions) - min([min(samples[group]) for group in groups if samples[group]])
+                x_range = max(x_positions) - min([min(samples[group]) for group in groups if hasattr(samples[group], '__len__') and len(samples[group]) > 0])
                 x_offset = x_max + (x_range * 0.12)  # Much closer to the plots
                 
                 # Use provided positions or fall back to default spacing
@@ -5433,7 +5564,182 @@ class DataVisualizer:
         if date is None:
             date = datetime.datetime.now().strftime("%Y-%m-%d")
         meta_text = f"DataVisualizer v{version} | {date}\nParams: {params}"
-        fig.text(0.01, 0.01, meta_text, fontsize=4, color='gray', ha='left', va='bottom', alpha=0.7)    
+        fig.text(0.01, 0.01, meta_text, fontsize=4, color='gray', ha='left', va='bottom', alpha=0.7)
+
+    @staticmethod
+    def plot_from_config(ax, groups, samples, config):
+        """
+        Zentrale Dispatcher-Methode für alle Plot-Typen.
+        Zeichnet auf dem übergebenen ax-Objekt genau den Plot,
+        den config spezifiziert (Typ, Farben, Hatches, Linien, Grid, etc.).
+        
+        Parameters:
+        -----------
+        ax : matplotlib.axes.Axes
+            Die Axes auf die gezeichnet werden soll
+        groups : list
+            Liste der Gruppennamen
+        samples : dict
+            Dictionary mit Gruppennamen als Keys und Messwerten als Listen
+        config : dict
+            Konfiguration mit allen Plot-Parametern
+        """
+        # 1. Alle nötigen Parameter aus config auslesen
+        plot_type = config.get('plot_type', 'Bar')
+        
+        # Farben für Gruppen extrahieren
+        colors_dict = config.get('colors', {})
+        colors = [colors_dict.get(g, '#3357FF') for g in groups] if isinstance(colors_dict, dict) else colors_dict
+        
+        # Hatches für Gruppen extrahieren
+        hatches_dict = config.get('hatches', {})
+        hatches = [hatches_dict.get(g, '') for g in groups] if isinstance(hatches_dict, dict) else hatches_dict
+        
+        # Standard-Parameter
+        alpha = config.get('alpha', 0.8)
+        error_type = config.get('error_type', 'sd')
+        error_style = config.get('error_style', 'caps')
+        bar_edge_color = config.get('bar_edge_color', 'black')
+        bar_linewidth = config.get('bar_linewidth', 0.5)
+        grid_style = config.get('grid_style', 'none')
+        despine = config.get('despine', True)
+        
+        # 2. Basis-kwargs für alle Plot-Typen (nur gemeinsame Parameter)
+        base_kwargs = {
+            'width': config.get('width', 8),
+            'height': config.get('height', 6),
+            'dpi': config.get('dpi', 300),
+            'theme': config.get('theme', 'default'),
+            'colors': colors,
+            'hatches': hatches,
+            'alpha': alpha,
+            'save_plot': False,  # NIE speichern in der Preview!
+            'file_formats': [],  # NIE speichern in der Preview!
+            'file_name': None,
+            'ax': ax,  # Wichtig: auf übergebene ax zeichnen
+            'show_points': config.get('show_points', True),
+            'point_style': config.get('point_style', 'jitter'),
+            'point_size': config.get('point_size', 80),
+            'show_significance_letters': config.get('show_significance_letters', True),
+            'x_label': config.get('x_label', ''),
+            'y_label': config.get('y_label', ''),
+            'title': config.get('title', ''),
+            'x_label_size': config.get('fontsize_axis', 12),
+            'y_label_size': config.get('fontsize_axis', 12),
+            'title_size': config.get('fontsize_title', 14),
+            'tick_label_size': config.get('fontsize_ticks', 10),
+            'grid_style': grid_style,
+            'spine_style': 'minimal' if despine else 'box',
+            'show_legend': config.get('show_legend', True),
+            'legend_position': config.get('legend_position', 'upper right')
+        }
+        
+        # 3. Plot-Typ spezifische Parameter und Dispatch
+        if plot_type == "Bar":
+            bar_kwargs = base_kwargs.copy()
+            bar_kwargs.update({
+                'show_error_bars': config.get('show_error_bars', True),
+                'error_type': error_type,
+                'capsize': 0 if error_style == 'line' else config.get('capsize', 0.05),
+                'bar_edge_color': bar_edge_color,
+                'bar_edge_width': bar_linewidth,
+                'error_style': error_style
+            })
+            DataVisualizer.plot_bar(groups, samples, **bar_kwargs)
+            
+        elif plot_type == "Box":
+            box_kwargs = base_kwargs.copy()
+            box_kwargs.update({
+                'show_error_bars': config.get('show_error_bars', True),
+                'error_type': error_type,
+                'capsize': 0 if error_style == 'line' else config.get('capsize', 0.05),
+                'edge_color': bar_edge_color,
+                'edge_width': bar_linewidth,
+                'error_style': error_style,
+                'box_width': config.get('box_width', 0.8)
+            })
+            DataVisualizer.plot_box(groups, samples, **box_kwargs)
+            
+        elif plot_type == "Violin":
+            # Violin hat keine show_error_bars oder error_type Parameter
+            violin_kwargs = base_kwargs.copy()
+            violin_kwargs.update({
+                'edge_color': bar_edge_color,
+                'edge_width': bar_linewidth,
+                'violin_width': config.get('violin_width', 0.8)
+            })
+            DataVisualizer.plot_violin(groups, samples, **violin_kwargs)
+            
+        elif plot_type == "Raincloud":
+            # Raincloud hat spezifische Parameter
+            raincloud_kwargs = base_kwargs.copy()
+            raincloud_kwargs.update({
+                'edge_color': bar_edge_color,
+                'edge_width': bar_linewidth,
+                'violin_width': config.get('violin_width', 0.8),
+                'box_width': config.get('box_width', 0.2),
+                'group_spacing': config.get('group_spacing', 0.5),
+                'fontsize_groupnames': config.get('fontsize_groupnames', None),
+                # Raincloud-specific color settings
+                'violin_colors': config.get('violin_colors', None),
+                'box_colors': config.get('box_colors', None),
+                'point_colors': config.get('point_colors', None),
+                # Spacing settings
+                'point_offset': config.get('point_offset', 0.2),
+                'point_jitter': config.get('point_jitter', 0.05),
+                # Line thickness settings
+                'frame_thickness': config.get('frame_thickness', 0.7),
+                'axis_thickness': config.get('axis_thickness', 0.5)
+            })
+            DataVisualizer.plot_raincloud(groups, samples, **raincloud_kwargs)
+        else:
+            raise ValueError(f"Unbekannter plot_type: {plot_type}")
+        
+        # 4. Zusätzliche Achsen-Formatierungen
+        
+        # Font Family setzen (matplotlib rcParams)
+        font_family = config.get('font_family', 'Arial')
+        import matplotlib.pyplot as plt
+        plt.rcParams['font.family'] = font_family
+        
+        if config.get('show_title', True) and config.get('title'):
+            ax.set_title(config.get('title', ''), fontsize=config.get('fontsize_title', 14))
+        
+        # Axis labels font sizes
+        if config.get('x_label'):
+            ax.set_xlabel(config.get('x_label', ''), fontsize=config.get('fontsize_axis', 12))
+        if config.get('y_label'):
+            ax.set_ylabel(config.get('y_label', ''), fontsize=config.get('fontsize_axis', 12))
+        
+        # Tick label font sizes
+        ax.tick_params(axis='both', which='major', labelsize=config.get('fontsize_ticks', 10))
+        
+        # Axis thickness
+        axis_thickness = config.get('axis_thickness', 0.7)
+        for spine in ax.spines.values():
+            spine.set_linewidth(axis_thickness)
+        ax.tick_params(axis='both', which='major', width=axis_thickness)
+        ax.tick_params(axis='both', which='minor', width=axis_thickness * 0.7)
+        
+        # Minor Ticks
+        if config.get('minor_ticks', False):
+            ax.minorticks_on()
+            ax.tick_params(which='minor', length=3, width=axis_thickness * 0.7)
+        
+        # Grid-Einstellungen
+        if grid_style and grid_style != 'none':
+            grid_alpha = config.get('grid_alpha', 0.3)
+            if config.get('minor_ticks', False):
+                ax.grid(True, which='both', alpha=grid_alpha, linestyle='-', linewidth=axis_thickness * 0.5)
+            else:
+                ax.grid(True, which='major', alpha=grid_alpha, linestyle='-', linewidth=axis_thickness * 0.5)
+        else:
+            ax.grid(False)
+            
+        # Spine-Einstellungen (Remove Spines)
+        if despine:
+            import seaborn as sns
+            sns.despine(ax=ax)   
             
         
 import xlsxwriter
