@@ -211,11 +211,13 @@ class ColorsTab(QWidget):
     """Tab für Farbeinstellungen"""
     settingsChanged = pyqtSignal()
     
-    def __init__(self, groups=None, config=None):
+    def __init__(self, groups=None, config=None, context="user_plot"):
         super().__init__()
         self.groups = groups or []
         self.config = config or {}
+        self.context = context  # "user_plot" or "analysis_only"
         self.color_buttons = {}
+        self.hatch_combos = {}
         self.init_ui()
         
     def init_ui(self):
@@ -227,13 +229,47 @@ class ColorsTab(QWidget):
         
         theme_layout.addWidget(QLabel("Theme:"))
         self.theme_combo = QComboBox()
-        self.theme_combo.addItems(['default', 'nature', 'academic', 'colorblind'])
+        self.theme_combo.addItems(['default'])  # Simplified - Seaborn handles styling now
         self.theme_combo.setCurrentText(self.config.get('theme', 'default'))
         self.theme_combo.currentTextChanged.connect(self.on_theme_changed)
         theme_layout.addWidget(self.theme_combo)
         theme_layout.addStretch()
         
         layout.addWidget(theme_group)
+        
+        # Seaborn Style and Palette Selection
+        seaborn_group = QGroupBox("Seaborn Style & Palette")
+        seaborn_layout = QGridLayout(seaborn_group)
+        
+        # Style context selector
+        seaborn_layout.addWidget(QLabel("Style Context:"), 0, 0)
+        self.style_context_combo = QComboBox()
+        self.style_context_combo.addItems(['notebook', 'paper', 'talk', 'poster'])
+        self.style_context_combo.setCurrentText(self.config.get('seaborn_context', 'notebook'))
+        self.style_context_combo.currentTextChanged.connect(self.on_seaborn_settings_changed)
+        seaborn_layout.addWidget(self.style_context_combo, 0, 1)
+        
+        # Color palette selector
+        seaborn_layout.addWidget(QLabel("Color Palette:"), 1, 0)
+        self.palette_combo = QComboBox()
+        # Professional palettes - excluding rainbow/childish ones
+        professional_palettes = [
+            'deep', 'muted', 'bright', 'pastel', 'dark', 'colorblind',
+            'viridis', 'plasma', 'inferno', 'magma', 'rocket', 'mako',
+            'Set2', 'Set3', 'Paired', 'tab10'
+        ]
+        self.palette_combo.addItems(professional_palettes)
+        self.palette_combo.setCurrentText(self.config.get('seaborn_palette', 'deep'))
+        self.palette_combo.currentTextChanged.connect(self.on_seaborn_settings_changed)
+        seaborn_layout.addWidget(self.palette_combo, 1, 1)
+        
+        # Enable/disable Seaborn styling
+        self.use_seaborn_checkbox = QCheckBox("Use Seaborn Styling")
+        self.use_seaborn_checkbox.setChecked(self.config.get('use_seaborn_styling', True))
+        self.use_seaborn_checkbox.stateChanged.connect(self.on_seaborn_settings_changed)
+        seaborn_layout.addWidget(self.use_seaborn_checkbox, 2, 0, 1, 2)
+        
+        layout.addWidget(seaborn_group)
         
         # Individual Colors Group
         colors_group = QGroupBox("Individual Colors")
@@ -306,13 +342,30 @@ class ColorsTab(QWidget):
             label = QLabel(f"{group}:")
             self.colors_layout.addWidget(label, i, 0)
             
-            # Get color from config or use default
-            # Erweiterte Grauton-Palette für bis zu 10 Gruppen
-            default_colors = [
-                '#2C2C2C', '#4A4A4A', '#686868', '#868686', '#A4A4A4', '#C2C2C2',
-                '#3C3C3C', '#5A5A5A', '#787878', '#969696'
-            ]
-            color = self.config.get('colors', {}).get(group, default_colors[i % len(default_colors)])
+            # Get color from config or use context-appropriate defaults
+            if self.config.get('colors') and group in self.config['colors']:
+                # Use existing colors from configuration (user's plot colors)
+                color = self.config['colors'][group]
+            else:
+                # Choose defaults based on context
+                if self.context == "analysis_only":
+                    # Use grayscale for analysis-only visualization
+                    default_colors = [
+                        '#2C2C2C', '#4A4A4A', '#686868', '#868686', '#A4A4A4', '#C2C2C2',
+                        '#3C3C3C', '#5A5A5A', '#787878', '#969696'
+                    ]
+                    color = default_colors[i % len(default_colors)]
+                else:
+                    # Use colorful defaults for user plots (same as DEFAULT_COLORS in statistical_analyzer.py)
+                    theme = self.config.get('theme', 'default')
+                    from stats_functions import DataVisualizer
+                    if theme in DataVisualizer.THEMES:
+                        theme_colors = DataVisualizer.THEMES[theme]['colors']
+                        color = theme_colors[i % len(theme_colors)]
+                    else:
+                        # Use system default colors for user plots
+                        default_colors = ['#FF69B4', '#32CD32', '#FFD700', '#00BFFF', '#DA70D6', '#D8BFD8']  # Pink, Green, Gold, etc.
+                        color = default_colors[i % len(default_colors)]
             
             color_btn = ColorButton(color)
             color_btn.colorChanged.connect(self.settingsChanged)
@@ -328,6 +381,36 @@ class ColorsTab(QWidget):
             for i, group in enumerate(self.groups):
                 if i < len(theme_colors):
                     self.color_buttons[group].set_color(theme_colors[i])
+        self.settingsChanged.emit()
+    
+    def on_seaborn_settings_changed(self):
+        """Handle changes to Seaborn style context or palette"""
+        if self.use_seaborn_checkbox.isChecked():
+            # Apply seaborn palette colors to color buttons
+            try:
+                import seaborn as sns
+                palette_name = self.palette_combo.currentText()
+                
+                # Get colors from the selected palette
+                if palette_name in ['viridis', 'plasma', 'inferno', 'magma', 'rocket', 'mako']:
+                    # For continuous palettes, sample discrete colors
+                    palette_colors = sns.color_palette(palette_name, n_colors=len(self.groups))
+                else:
+                    # For discrete palettes
+                    palette_colors = sns.color_palette(palette_name, n_colors=len(self.groups))
+                
+                # Convert to hex colors and update buttons
+                for i, group in enumerate(self.groups):
+                    if i < len(palette_colors):
+                        # Convert RGB tuple to hex
+                        rgb = palette_colors[i]
+                        hex_color = "#{:02x}{:02x}{:02x}".format(
+                            int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255)
+                        )
+                        self.color_buttons[group].set_color(hex_color)
+            except ImportError:
+                pass  # Seaborn not available
+        
         self.settingsChanged.emit()
     
     def get_settings(self):
@@ -362,7 +445,10 @@ class ColorsTab(QWidget):
         return {
             'theme': self.theme_combo.currentText(),
             'colors': colors,
-            'hatches': hatches
+            'hatches': hatches,
+            'seaborn_context': self.style_context_combo.currentText(),
+            'seaborn_palette': self.palette_combo.currentText(),
+            'use_seaborn_styling': self.use_seaborn_checkbox.isChecked()
         }
     
     def set_groups(self, groups):
@@ -748,16 +834,99 @@ class ErrorBarsTab(QWidget):
         }
 
 
+class SignificanceTab(QWidget):
+    """Tab für Signifikanz-Einstellungen (Buchstaben und Balken)"""
+    settingsChanged = pyqtSignal()
+    
+    def __init__(self, config=None):
+        super().__init__()
+        self.config = config or {}
+        self.init_ui()
+        
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Significance Letters Group
+        letters_group = QGroupBox("Significance Letters")
+        letters_layout = QGridLayout(letters_group)
+        
+        # Show Significance Letters
+        self.show_letters_check = QCheckBox("Show Significance Letters")
+        self.show_letters_check.setChecked(self.config.get('show_significance_letters', True))
+        self.show_letters_check.toggled.connect(self.settingsChanged)
+        letters_layout.addWidget(self.show_letters_check, 0, 0, 1, 2)
+        
+        # Letters Font Size
+        letters_layout.addWidget(QLabel("Font Size:"), 1, 0)
+        self.letters_fontsize_spin = QSpinBox()
+        self.letters_fontsize_spin.setRange(6, 24)
+        self.letters_fontsize_spin.setValue(self.config.get('significance_font_size', 12))
+        self.letters_fontsize_spin.valueChanged.connect(self.settingsChanged)
+        letters_layout.addWidget(self.letters_fontsize_spin, 1, 1)
+        
+        # Letters Height Offset
+        letters_layout.addWidget(QLabel("Height Offset:"), 2, 0)
+        self.letters_offset_spin = QDoubleSpinBox()
+        self.letters_offset_spin.setRange(0.0, 0.5)
+        self.letters_offset_spin.setSingleStep(0.01)
+        self.letters_offset_spin.setValue(self.config.get('significance_height_offset', 0.05))
+        self.letters_offset_spin.valueChanged.connect(self.settingsChanged)
+        letters_layout.addWidget(self.letters_offset_spin, 2, 1)
+        
+        layout.addWidget(letters_group)
+        
+        # Comparison Bars Group
+        bars_group = QGroupBox("Comparison Bars")
+        bars_layout = QGridLayout(bars_group)
+        
+        # Show Pairwise Comparisons
+        self.show_comparisons_check = QCheckBox("Show Pairwise Comparisons")
+        self.show_comparisons_check.setChecked(self.config.get('show_pairwise_comparisons', True))
+        self.show_comparisons_check.toggled.connect(self.settingsChanged)
+        bars_layout.addWidget(self.show_comparisons_check, 0, 0, 1, 2)
+        
+        # Comparison Font Size
+        bars_layout.addWidget(QLabel("Font Size:"), 1, 0)
+        self.comparison_fontsize_spin = QSpinBox()
+        self.comparison_fontsize_spin.setRange(6, 24)
+        self.comparison_fontsize_spin.setValue(self.config.get('comparison_font_size', 14))
+        self.comparison_fontsize_spin.valueChanged.connect(self.settingsChanged)
+        bars_layout.addWidget(self.comparison_fontsize_spin, 1, 1)
+        
+        # Comparison Line Height
+        bars_layout.addWidget(QLabel("Line Height:"), 2, 0)
+        self.comparison_height_spin = QDoubleSpinBox()
+        self.comparison_height_spin.setRange(0.0, 0.5)
+        self.comparison_height_spin.setSingleStep(0.01)
+        self.comparison_height_spin.setValue(self.config.get('comparison_line_height', 0.1))
+        self.comparison_height_spin.valueChanged.connect(self.settingsChanged)
+        bars_layout.addWidget(self.comparison_height_spin, 2, 1)
+        
+        layout.addWidget(bars_group)
+        layout.addStretch()
+    
+    def get_settings(self):
+        return {
+            'show_significance_letters': self.show_letters_check.isChecked(),
+            'significance_font_size': self.letters_fontsize_spin.value(),
+            'significance_height_offset': self.letters_offset_spin.value(),
+            'show_pairwise_comparisons': self.show_comparisons_check.isChecked(),
+            'comparison_font_size': self.comparison_fontsize_spin.value(),
+            'comparison_line_height': self.comparison_height_spin.value()
+        }
+
+
 class PlotAestheticsDialog(QDialog):
     """
     Hauptdialog für Plot-Einstellungen mit Tab-Interface und Live-Preview
     """
     
-    def __init__(self, groups=None, samples=None, config=None, parent=None):
+    def __init__(self, groups=None, samples=None, config=None, parent=None, context="user_plot"):
         super().__init__(parent)
         self.groups = groups or []
         self.samples = samples or {}
         self.config = config or {}
+        self.context = context  # "user_plot" or "analysis_only"
         
         self.setWindowTitle("Plot Appearance Settings")
         self.setModal(True)
@@ -790,10 +959,11 @@ class PlotAestheticsDialog(QDialog):
         # Tabs erstellen
         self.size_tab = SizeTab(self.config)
         self.typography_tab = TypographyTab(self.config)
-        self.colors_tab = ColorsTab(self.groups, self.config)
+        self.colors_tab = ColorsTab(self.groups, self.config, self.context)
         self.style_tab = StyleTab(self.config)
         self.raincloud_tab = RaincloudTab(self.groups, self.config)
         self.error_tab = ErrorBarsTab(self.config)
+        self.significance_tab = SignificanceTab(self.config)
         
         # Tabs hinzufügen
         self.tab_widget.addTab(self.size_tab, "Size")
@@ -802,6 +972,7 @@ class PlotAestheticsDialog(QDialog):
         self.tab_widget.addTab(self.style_tab, "Style")
         # Raincloud Tab wird nur hinzugefügt wenn Plot Type = Raincloud
         self.tab_widget.addTab(self.error_tab, "Error Bars")
+        self.tab_widget.addTab(self.significance_tab, "Significance")
         
         left_layout.addWidget(self.tab_widget)
         
@@ -847,7 +1018,11 @@ class PlotAestheticsDialog(QDialog):
         self.style_tab.settingsChanged.connect(self.update_preview)
         self.style_tab.settingsChanged.connect(self.update_raincloud_tab_visibility)
         self.raincloud_tab.settingsChanged.connect(self.update_preview)
+        # FIXED: Add missing signal connections for complete preview updates
         self.error_tab.settingsChanged.connect(self.update_preview)
+        self.significance_tab.settingsChanged.connect(self.update_preview)
+        self.error_tab.settingsChanged.connect(self.update_preview)
+        self.significance_tab.settingsChanged.connect(self.update_preview)
     
     def update_preview_immediately(self):
         """Sofortige Preview-Aktualisierung für Schriftarten-Änderungen"""
@@ -917,6 +1092,7 @@ class PlotAestheticsDialog(QDialog):
         config.update(self.style_tab.get_settings())
         config.update(self.raincloud_tab.get_settings())
         config.update(self.error_tab.get_settings())
+        config.update(self.significance_tab.get_settings())
         
         # AUTOMATISCHE GRÖßENANPASSUNG BASIEREND AUF GRUPPENANZAHL
         num_groups = len(self.groups)
@@ -944,12 +1120,19 @@ class PlotAestheticsDialog(QDialog):
                     config['width'] += (num_groups - 6) * 0.5   # Extra Breite ab 6 Gruppen
         
         # Sicherstellen, dass Farben immer gesetzt sind
+        # Only set default colors if no colors are configured at all
         if 'colors' not in config or not config['colors']:
-            # Erweiterte Grauton-Palette für bis zu 10 Gruppen
-            default_colors = [
-                '#2C2C2C', '#4A4A4A', '#686868', '#868686', '#A4A4A4', '#C2C2C2',
-                '#3C3C3C', '#5A5A5A', '#787878', '#969696'
-            ]
+            # Use context to determine appropriate default colors
+            if self.context == "analysis_only":
+                # Use grayscale for analysis-only visualization
+                default_colors = [
+                    '#2C2C2C', '#4A4A4A', '#686868', '#868686', '#A4A4A4', '#C2C2C2',
+                    '#3C3C3C', '#5A5A5A', '#787878', '#969696'
+                ]
+            else:
+                # Use colorful defaults for user plots
+                default_colors = ['#FF69B4', '#32CD32', '#FFD700', '#00BFFF', '#DA70D6', '#D8BFD8']
+                
             config['colors'] = {}
             for i, group in enumerate(self.groups):
                 config['colors'][group] = default_colors[i % len(default_colors)]

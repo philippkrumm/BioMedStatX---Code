@@ -4118,26 +4118,11 @@ from scipy import stats
 class DataVisualizer:
     """Advanced data visualization class with extensive customization options"""
     
-    # Default themes/styles
+    # Default themes/styles - simplified since Seaborn handles most styling
     THEMES = {
         'default': {
             'colors': ['#3357FF', '#FF5733', '#33FF57', '#F033FF', '#FF3366', '#33FFEC'],
             'hatches': ['/', '\\', '|', '-', '+', 'x', 'o', '.'],
-            'style': 'whitegrid'
-        },
-        'nature': {
-            'colors': ['#2E8B57', '#CD853F', '#4682B4', '#DAA520', '#DC143C', '#9370DB'],
-            'hatches': ['...', '|||', '---', '+++', '\\\\\\', '///'],
-            'style': 'white'
-        },
-        'academic': {
-            'colors': ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b'],
-            'hatches': [None] * 6,
-            'style': 'ticks'
-        },
-        'colorblind': {
-            'colors': ['#0173B2', '#DE8F05', '#029E73', '#CC78BC', '#CA9161', '#FBAFE4'],
-            'hatches': ['////', '\\\\\\\\', '||||', '----', '++++', 'xxxx'],
             'style': 'whitegrid'
         }
     }
@@ -4166,6 +4151,30 @@ class DataVisualizer:
                 adjusted_width += (num_groups - 6) * 0.5
                 
         return adjusted_width, adjusted_height
+
+    @staticmethod
+    def _apply_seaborn_settings(seaborn_context=None, seaborn_palette=None, use_seaborn_styling=True):
+        """Apply Seaborn style context and palette settings"""
+        if not use_seaborn_styling:
+            return
+            
+        try:
+            import seaborn as sns
+            
+            # Apply style context if specified
+            if seaborn_context:
+                sns.set_context(seaborn_context)
+            
+            # Set default style for better aesthetics
+            sns.set_style("whitegrid")
+            
+            # Apply palette if specified
+            if seaborn_palette:
+                sns.set_palette(seaborn_palette)
+                
+        except ImportError:
+            # Seaborn not available, skip styling
+            pass
 
     @staticmethod
     def plot_bar(groups, samples, 
@@ -4208,6 +4217,9 @@ class DataVisualizer:
                  spine_style='minimal', background_color='white',
                  figure_face_color='white',
                  
+                 # Seaborn styling
+                 seaborn_context=None, seaborn_palette=None, use_seaborn_styling=True,
+                 
                   # Output options
                  save_plot=True, file_formats=['png', 'svg'], 
                  file_name=None, group_order=None,
@@ -4236,6 +4248,9 @@ class DataVisualizer:
             if hatches is None:
                 hatches = theme_config['hatches']
             sns.set_style(theme_config['style'])
+        
+        # Apply Seaborn styling
+        DataVisualizer._apply_seaborn_settings(seaborn_context, seaborn_palette, use_seaborn_styling)
         
         # Prepare data and groups
         if group_order is not None:
@@ -4408,6 +4423,8 @@ class DataVisualizer:
         legend_title="Samples", legend_title_size=12,
         spine_style='minimal', background_color='white',
         figure_face_color='white',
+        # Seaborn styling
+        seaborn_context=None, seaborn_palette=None, use_seaborn_styling=True,
         save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
@@ -4425,6 +4442,10 @@ class DataVisualizer:
             if hatches is None:
                 hatches = theme_config['hatches']
             sns.set_style(theme_config['style'])
+        
+        # Apply Seaborn styling
+        DataVisualizer._apply_seaborn_settings(seaborn_context, seaborn_palette, use_seaborn_styling)
+        
         if colors is None:
             colors = sns.color_palette(color_palette, len(groups))
         colors = DataVisualizer._extend_list(colors, len(groups))
@@ -4547,6 +4568,8 @@ class DataVisualizer:
         legend_title="Samples", legend_title_size=12,
         spine_style='minimal', background_color='white',
         figure_face_color='white', error_style="caps", 
+        # Seaborn styling
+        seaborn_context=None, seaborn_palette=None, use_seaborn_styling=True,
         save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
@@ -4569,6 +4592,10 @@ class DataVisualizer:
             if hatches is None:
                 hatches = theme_config['hatches']
             sns.set_style(theme_config['style'])
+        
+        # Apply Seaborn styling
+        DataVisualizer._apply_seaborn_settings(seaborn_context, seaborn_palette, use_seaborn_styling)
+        
         if colors is None:
             colors = sns.color_palette(color_palette, len(groups))
         colors = DataVisualizer._extend_list(colors, len(groups))
@@ -4719,6 +4746,8 @@ class DataVisualizer:
         point_offset=0.2, point_jitter=0.05,
         # Line thickness options
         frame_thickness=0.7, axis_thickness=0.5,
+        # Seaborn styling
+        seaborn_context=None, seaborn_palette=None, use_seaborn_styling=True,
         # Optional ax parameter for direct plotting
         ax=None
     ):
@@ -4749,6 +4778,10 @@ class DataVisualizer:
             if hatches is None:
                 hatches = theme_config['hatches']
             sns.set_style(theme_config['style'])
+        
+        # Apply Seaborn styling
+        DataVisualizer._apply_seaborn_settings(seaborn_context, seaborn_palette, use_seaborn_styling)
+        
         if colors is None:
             colors = sns.color_palette(color_palette, len(groups))
         colors = DataVisualizer._extend_list(colors, len(groups))
@@ -5613,6 +5646,10 @@ class DataVisualizer:
             'colors': colors,
             'hatches': hatches,
             'alpha': alpha,
+            # Seaborn styling parameters
+            'seaborn_context': config.get('seaborn_context', 'notebook'),
+            'seaborn_palette': config.get('seaborn_palette', 'deep'),
+            'use_seaborn_styling': config.get('use_seaborn_styling', True),
             'save_plot': False,  # NIE speichern in der Preview!
             'file_formats': [],  # NIE speichern in der Preview!
             'file_name': None,
@@ -5620,7 +5657,16 @@ class DataVisualizer:
             'show_points': config.get('show_points', True),
             'point_style': config.get('point_style', 'jitter'),
             'point_size': config.get('point_size', 80),
+            'show_error_bars': config.get('show_error_bars', True),
+            'error_type': error_type,
+            'error_style': error_style,
+            'capsize': config.get('capsize', 0.05),
             'show_significance_letters': config.get('show_significance_letters', True),
+            'significance_height_offset': config.get('significance_height_offset', 0.05),
+            'significance_font_size': config.get('significance_font_size', 12),
+            'show_pairwise_comparisons': config.get('show_pairwise_comparisons', True),
+            'comparison_font_size': config.get('comparison_font_size', 14),
+            'comparison_line_height': config.get('comparison_line_height', 0.1),
             'x_label': config.get('x_label', ''),
             'y_label': config.get('y_label', ''),
             'title': config.get('title', ''),
@@ -5721,10 +5767,19 @@ class DataVisualizer:
         ax.tick_params(axis='both', which='major', width=axis_thickness)
         ax.tick_params(axis='both', which='minor', width=axis_thickness * 0.7)
         
-        # Minor Ticks
+        # Minor Ticks - only on numerical axes
         if config.get('minor_ticks', False):
-            ax.minorticks_on()
-            ax.tick_params(which='minor', length=3, width=axis_thickness * 0.7)
+            plot_type = config.get('plot_type', 'Bar')
+            
+            # For Bar, Box, Violin: minor ticks only on Y-axis (numerical)
+            if plot_type in ['Bar', 'Box', 'Violin']:
+                ax.yaxis.set_minor_locator(plt.MultipleLocator(0.5))  # Auto minor ticks on Y
+                ax.tick_params(axis='y', which='minor', length=3, width=axis_thickness * 0.7)
+            
+            # For Raincloud: minor ticks only on X-axis (numerical)  
+            elif plot_type == 'Raincloud':
+                ax.xaxis.set_minor_locator(plt.MultipleLocator(0.5))  # Auto minor ticks on X
+                ax.tick_params(axis='x', which='minor', length=3, width=axis_thickness * 0.7)
         
         # Grid-Einstellungen
         if grid_style and grid_style != 'none':

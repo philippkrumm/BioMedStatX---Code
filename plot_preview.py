@@ -167,6 +167,19 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
             merged_config = self.default_config.copy()
             merged_config.update(config)
             config = merged_config
+            
+        # Ensure colors are set if not provided
+        if not config.get('colors') and self.groups:
+            # Only set default colors if absolutely no colors are provided
+            # This should rarely happen since configs should always include colors
+            DEFAULT_COLORS = ['#FF69B4', '#32CD32', '#FFD700', '#00BFFF', '#DA70D6', '#D8BFD8']
+            colors_dict = {}
+            for i, group in enumerate(self.groups):
+                colors_dict[group] = DEFAULT_COLORS[i % len(DEFAULT_COLORS)]
+            config['colors'] = colors_dict
+            print(f"DEBUG: PlotPreviewWidget set fallback colors: {colors_dict}")
+        else:
+            print(f"DEBUG: PlotPreviewWidget using provided colors: {config.get('colors', {})}")
         
         try:
             # Clear and redraw

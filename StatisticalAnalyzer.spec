@@ -43,7 +43,7 @@ exe = EXE(
     a.binaries,           # Include binaries in the executable
     a.datas,              # Include data files in the executable
     [],
-    name='StatisticalAnalyzer',
+    name='BioMedStatX',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

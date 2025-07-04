@@ -766,12 +766,30 @@ class PlotConfigDialog(QDialog):
             print("DEBUG: Opening new PlotAestheticsDialog!")
             # Greife auf parent App zu für temporäre Einstellungen
             parent_app = self.parent()
-            current_config = getattr(parent_app, 'temp_plot_appearance_settings', None) or {}
+            
+            # IMPORTANT: Get the current plot config to preserve user's colors
+            current_plot_config = self.get_config() or {}
+            current_appearance_config = getattr(parent_app, 'temp_plot_appearance_settings', None) or {}
+            
+            # Merge configs: appearance settings override plot config, but preserve user's colors if no appearance colors
+            merged_config = current_plot_config.copy()
+            merged_config.update(current_appearance_config)
+            
+            # Ensure colors are from plot config if not overridden by appearance
+            if 'colors' in current_plot_config and ('colors' not in current_appearance_config or not current_appearance_config['colors']):
+                merged_config['colors'] = current_plot_config['colors']
+            
+            print(f"DEBUG: merged_config colors = {merged_config.get('colors', {})}")
+            
+            # Determine context: this is a user plot (not analysis-only)
+            context = "user_plot"
+            
             dlg = PlotAestheticsDialog(
                 ordered_groups,
                 parent_app.samples if hasattr(parent_app, "samples") else {},
-                config=current_config,
-                parent=self
+                config=merged_config,
+                parent=self,
+                context=context
             )
             print("DEBUG: PlotAestheticsDialog created successfully")
             if dlg.exec_() == dlg.Accepted:
@@ -895,8 +913,9 @@ class PlotConfigDialog(QDialog):
                 'needs_subject_selection': self.dependent_check.isChecked()
             }
             # Always add appearance_settings from PlotAestheticsDialog if present
-            if hasattr(self, 'appearance_settings') and self.appearance_settings:
-                config['appearance_settings'] = self.appearance_settings
+            parent_app = self.parent()
+            if hasattr(parent_app, 'temp_plot_appearance_settings') and parent_app.temp_plot_appearance_settings:
+                config['appearance_settings'] = parent_app.temp_plot_appearance_settings
             return config
         except Exception as e:
             print(f"Error in get_config: {str(e)}")
@@ -2976,6 +2995,16 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'x_label_size': appearance.get('fontsize_axis', 11),
                 'y_label_size': appearance.get('fontsize_axis', 11),
                 'title_size': appearance.get('fontsize_title', 11),
+                
+                # IMPORTANT: Pass colors from appearance settings
+                'colors': appearance.get('colors', plot_config.get('colors', {})),
+                'hatches': appearance.get('hatches', plot_config.get('hatches', {})),
+            })
+        else:
+            # If no appearance settings, use colors from plot_config  
+            kwargs.update({
+                'colors': plot_config.get('colors', {}),
+                'hatches': plot_config.get('hatches', {}),
             })
 
         # Additional factors for two-way ANOVA
@@ -3096,6 +3125,14 @@ class StatisticalAnalyzerApp(QMainWindow):
             if hasattr(self, 'temp_plot_appearance_settings') and self.temp_plot_appearance_settings:
                 temp_config.update(self.temp_plot_appearance_settings)
                 print(f"DEBUG: Using temp appearance settings in preview: {self.temp_plot_appearance_settings}")
+            else:
+                # No user appearance settings, use grayscale for analysis-only preview
+                grayscale_colors = {
+                    group: ['#2C2C2C', '#4A4A4A', '#686868', '#868686', '#A4A4A4', '#C2C2C2'][i % 6]
+                    for i, group in enumerate(self.available_groups)
+                }
+                temp_config['colors'] = grayscale_colors
+                print(f"DEBUG: Using grayscale colors for analysis-only preview: {grayscale_colors}")
             
             # Use the existing preview_plot logic but with the temp config
             self.preview_auto_plot(temp_config)
@@ -3149,6 +3186,15 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'error_type': 'sd',
                 'create_plot': True
             }
+            
+            # Add grayscale colors for selection preview (analysis-only context)
+            if not hasattr(self, 'temp_plot_appearance_settings') or not self.temp_plot_appearance_settings:
+                grayscale_colors = {
+                    group: ['#2C2C2C', '#4A4A4A', '#686868', '#868686', '#A4A4A4', '#C2C2C2'][i % 6]
+                    for i, group in enumerate(selected_groups)
+                }
+                temp_config['colors'] = grayscale_colors
+            
             self.preview_auto_plot(temp_config)
             
     # Neue Methode für die Anzeige einer Hilfefunktion zu abhängigen Stichproben
