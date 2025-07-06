@@ -4404,20 +4404,11 @@ class DataVisualizer:
                 frameon=False
             )
         
-        # Add custom annotations
-        if custom_annotations:
-            DataVisualizer._add_custom_annotations(ax, custom_annotations)
-        
-        # Add watermark
-        if watermark:
-            DataVisualizer._add_watermark(fig, watermark)
-        
-        # Adjust layout nur wenn neue Figure erstellt wurde
-        if tight_layout and created_fig:
-            if subplot_margins:
-                plt.subplots_adjust(**subplot_margins)
-            else:
-                fig.tight_layout()
+        # Apply final formatting including tick control
+        DataVisualizer._apply_final_formatting(
+            ax, groups, 'Bar', tight_layout, created_fig, 
+            subplot_margins, custom_annotations, watermark
+        )
         
         # Save plot nur wenn neue Figure erstellt wurde
         if save_plot and created_fig:
@@ -5795,6 +5786,9 @@ class DataVisualizer:
             elif plot_type == 'Raincloud':
                 ax.xaxis.set_minor_locator(plt.MultipleLocator(0.5))  # Auto minor ticks on X
                 ax.tick_params(axis='x', which='minor', length=3, width=axis_thickness * 0.7)
+        
+        # Control ticks for many groups to prevent matplotlib errors
+        DataVisualizer._control_ticks_for_many_groups(ax, groups, config.get('plot_type', 'Bar'))
         
         # Grid-Einstellungen
         if grid_style and grid_style != 'none':
