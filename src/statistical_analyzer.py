@@ -2382,13 +2382,7 @@ class StatisticalAnalyzerApp(QMainWindow):
         # KORREKTUR: Gehe zuerst zu PlotConfigDialog, nicht direkt zu PlotAestheticsDialog
         dlg = PlotConfigDialog(config.get('groups', []), parent=self)
         
-        # Lade die bestehende Konfiguration in den Dialog
-        if 'title' in config:
-            dlg.title_edit.setText(config['title'])
-        if 'x_label' in config:
-            dlg.x_label_edit.setText(config['x_label'])
-        if 'y_label' in config:
-            dlg.y_label_edit.setText(config['y_label'])
+        # Lade die bestehende Konfiguration in den Dialog (nur verfügbare Felder)
         if 'file_name' in config:
             dlg.file_name_edit.setText(config['file_name'])
         if 'dependent' in config:
@@ -3533,18 +3527,17 @@ class StatisticalAnalyzerApp(QMainWindow):
                     print(f"Configuring plot for column {column} ({i+1}/{len(self.selected_columns)})")
                     print(f"DEBUG MULTI:   ► iterating dataset #{i+1}: '{column}'")
                     print(f"DEBUG MULTI:      → plot_configs keys so far: {list(plot_configs.keys())}")
-                    # --- Plot configuration per dataset ---
-                    dlg = PlotAestheticsDialog(
-                        selected_groups,
-                        self.samples if hasattr(self, "samples") else {},
-                        config={"title": column, "file_name": f"{column}_analysis"},
-                        parent=self
-                    )
+                    # --- Use the main PlotConfigDialog for each dataset ---
+                    dlg = PlotConfigDialog(selected_groups, parent=self)
                     dlg.setWindowTitle(f"Configure plot for '{column}' ({i+1}/{len(self.selected_columns)})")
+                    # Pre-fill the file name with the column name
+                    dlg.file_name_edit.setText(f"{column}_analysis")
                     if dlg.exec_() != dlg.Accepted:
                         print(f"Configuration for {column} cancelled")
                         continue
                     plot_config = dlg.get_config()
+                    # Ensure groups are stored
+                    plot_config['groups'] = selected_groups.copy() if isinstance(selected_groups, list) else list(selected_groups)
                     plot_configs[column] = plot_config
                     print(f"Configuration for {column} saved")
 
