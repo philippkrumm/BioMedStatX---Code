@@ -2382,13 +2382,7 @@ class StatisticalAnalyzerApp(QMainWindow):
         # KORREKTUR: Gehe zuerst zu PlotConfigDialog, nicht direkt zu PlotAestheticsDialog
         dlg = PlotConfigDialog(config.get('groups', []), parent=self)
         
-        # Lade die bestehende Konfiguration in den Dialog
-        if 'title' in config:
-            dlg.title_edit.setText(config['title'])
-        if 'x_label' in config:
-            dlg.x_label_edit.setText(config['x_label'])
-        if 'y_label' in config:
-            dlg.y_label_edit.setText(config['y_label'])
+        # Lade die bestehende Konfiguration in den Dialog (nur verfügbare Felder)
         if 'file_name' in config:
             dlg.file_name_edit.setText(config['file_name'])
         if 'dependent' in config:
@@ -3536,8 +3530,7 @@ class StatisticalAnalyzerApp(QMainWindow):
                     # --- Use the main PlotConfigDialog for each dataset ---
                     dlg = PlotConfigDialog(selected_groups, parent=self)
                     dlg.setWindowTitle(f"Configure plot for '{column}' ({i+1}/{len(self.selected_columns)})")
-                    # Optionally pre-fill dialog fields
-                    dlg.title_edit.setText(str(column))
+                    # Pre-fill the file name with the column name
                     dlg.file_name_edit.setText(f"{column}_analysis")
                     if dlg.exec_() != dlg.Accepted:
                         print(f"Configuration for {column} cancelled")
