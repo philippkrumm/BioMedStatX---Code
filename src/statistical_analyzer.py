@@ -3533,18 +3533,18 @@ class StatisticalAnalyzerApp(QMainWindow):
                     print(f"Configuring plot for column {column} ({i+1}/{len(self.selected_columns)})")
                     print(f"DEBUG MULTI:   ► iterating dataset #{i+1}: '{column}'")
                     print(f"DEBUG MULTI:      → plot_configs keys so far: {list(plot_configs.keys())}")
-                    # --- Plot configuration per dataset ---
-                    dlg = PlotAestheticsDialog(
-                        selected_groups,
-                        self.samples if hasattr(self, "samples") else {},
-                        config={"title": column, "file_name": f"{column}_analysis"},
-                        parent=self
-                    )
+                    # --- Use the main PlotConfigDialog for each dataset ---
+                    dlg = PlotConfigDialog(selected_groups, parent=self)
                     dlg.setWindowTitle(f"Configure plot for '{column}' ({i+1}/{len(self.selected_columns)})")
+                    # Optionally pre-fill dialog fields
+                    dlg.title_edit.setText(str(column))
+                    dlg.file_name_edit.setText(f"{column}_analysis")
                     if dlg.exec_() != dlg.Accepted:
                         print(f"Configuration for {column} cancelled")
                         continue
                     plot_config = dlg.get_config()
+                    # Ensure groups are stored
+                    plot_config['groups'] = selected_groups.copy() if isinstance(selected_groups, list) else list(selected_groups)
                     plot_configs[column] = plot_config
                     print(f"Configuration for {column} saved")
 

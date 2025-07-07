@@ -20,11 +20,17 @@ EXCLUDE_UNUSED = False  # Disable exclusions for debugging
 # Application details
 APP_NAME = 'BioMedStatX'
 # Get the script directory and construct path to main script
-SPEC_DIR = os.path.dirname(SPECPATH)
-MAIN_SCRIPT = os.path.abspath(os.path.join(SPEC_DIR, 'src', 'statistical_analyzer.py'))
-if not os.path.exists(MAIN_SCRIPT):
-    # Fallback: use absolute path if relative path fails
-    MAIN_SCRIPT = '/Users/philippkrumm/Documents/BioMedStatX---Code/src/statistical_analyzer.py'
+SPEC_DIR = os.getcwd()
+if sys.platform.startswith('win') or sys.platform == 'darwin':
+    # Use src/statistical_analyzer.py as main script
+    MAIN_SCRIPT = os.path.abspath(os.path.join(SPEC_DIR, 'src', 'statistical_analyzer.py'))
+    if not os.path.exists(MAIN_SCRIPT):
+        raise FileNotFoundError(
+            f"Main script not found: {MAIN_SCRIPT}\nPlease ensure 'statistical_analyzer.py' is in the 'src' directory under your project root: {SPEC_DIR}"
+        )
+else:
+    # Fallback for other OSes
+    MAIN_SCRIPT = os.path.abspath(os.path.join(SPEC_DIR, 'src', 'statistical_analyzer.py'))
 # Platform detection
 IS_WINDOWS = sys.platform.startswith('win')
 IS_MACOS = sys.platform == 'darwin'
@@ -47,9 +53,9 @@ datas = []
 # Application specific files - use paths relative to project root
 app_files = [
     (os.path.join(SPEC_DIR, 'src', 'lazy_imports.py'), '.'),
-    (os.path.join(SPEC_DIR, 'assets', 'StyleSheet.qss'), '.'),
-    (os.path.join(SPEC_DIR, 'assets', 'Institutslogo.ico'), '.'),
-    (os.path.join(SPEC_DIR, 'assets', 'StatisticalAnalyzer_Excel_Template.xlsx'), '.'),
+    (os.path.join(SPEC_DIR, 'assets', 'StyleSheet.qss'), 'assets'),
+    (os.path.join(SPEC_DIR, 'assets', 'Institutslogo.ico'), 'assets'),
+    (os.path.join(SPEC_DIR, 'assets', 'StatisticalAnalyzer_Excel_Template.xlsx'), 'assets'),
     (os.path.join(SPEC_DIR, 'tests', 'test_data', '*.png'), '.'),  # Include plot test files
 ]
 
@@ -91,19 +97,34 @@ hiddenimports = [
     'plot_aesthetics_dialog', 
     'plot_preview',
     'decisiontreevisualizer',
-    
     # PyQt5 essentials
     'PyQt5.QtCore',
     'PyQt5.QtGui', 
     'PyQt5.QtWidgets',
     'PyQt5.sip',
-    
     # Matplotlib backends for plot export
     'matplotlib.backends.backend_svg',
     'matplotlib.backends.backend_pdf',
     'matplotlib.backends.backend_ps',
     'matplotlib.backends.backend_agg',
-    
+    # Additional required modules
+    'networkx',
+    'pandas',
+    'numpy',
+    'scipy',
+    'matplotlib',
+    'seaborn',
+    'openpyxl',
+    'pingouin',
+    'statsmodels',
+    'scikit_posthocs',
+    'sklearn',
+    'xgboost',
+    'xarray',
+    'tabulate',
+    'PyQt5',
+    'pywin32',
+    'psutil',
     # Let PyInstaller handle the rest automatically
 ]
 

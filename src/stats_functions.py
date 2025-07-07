@@ -5895,7 +5895,7 @@ class ResultsExporter:
             print(f"    p_value: {results.get('p_value')} | pairwise_comparisons: {len(results.get('pairwise_comparisons', []))}")
         
         """Exports the results of all dataset analyses into a shared Excel file."""
-        import os
+        # import os  # Already imported at top
         import time
         import xlsxwriter
         from decisiontreevisualizer import DecisionTreeVisualizer
@@ -7670,7 +7670,7 @@ class ResultsExporter:
         """Clean up old decision tree files."""
         import glob
         import time
-        import os
+        # import os  # Already imported at top
         import tempfile
         
         # First check temp directory for pattern-matching files
@@ -9663,7 +9663,7 @@ class OutlierDetector:
         import matplotlib.pyplot as plt
         import seaborn as sns
         import tempfile
-        import os
+        # import os  # Already imported at top
         
         # Create a visualization sheet
         ws = wb.create_sheet(title="Visualization")
@@ -9865,7 +9865,7 @@ class OutlierDetector:
         import matplotlib.pyplot as plt
         import seaborn as sns
         import tempfile
-        import os
+        # import os  # Already imported at top
 
         # Create a visualization sheet
         ws = wb.create_sheet(title="Visualization")
