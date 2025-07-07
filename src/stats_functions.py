@@ -2237,22 +2237,9 @@ class StatisticalTester:
                         if not is_normal:
                             print(f"DEBUG: Data still not normal after manual transformation, using non_parametric")
                             recommendation = "non_parametric"
-                    
-                    # Cache this transformation choice in the dialog manager to prevent showing the dialog again
-                    if not hasattr(UIDialogManager.select_transformation_dialog, '_shown_dialogs'):
-                        UIDialogManager.select_transformation_dialog._shown_dialogs = {}
-                        
-                    dialog_key = f"for Advanced Test_{dv}"
-                    UIDialogManager.select_transformation_dialog._shown_dialogs[dialog_key] = manual_transform
-                    print(f"DEBUG: Cached transformation choice '{manual_transform}' with key '{dialog_key}'")
                 else:
-                    # Only call check_normality_and_variance if no manual transform is provided
-                    transformed_samples, recommendation, test_info = StatisticalTester.check_normality_and_variance(
-                        groups, samples, dataset_name=dv, 
-                        already_transformed=False,
-                        progress_text=f"for Advanced Test",  # Use consistent key format that matches open_advanced_tests
-                        column_name=dv
-                    )
+                    # We already have the results from prepare_advanced_test, no need to call again
+                    print("DEBUG: Using existing test results from prepare_advanced_test")
             
             print("DEBUG: transformed_samples =", transformed_samples)
             valid_groups = [g for g in groups if g in transformed_samples and len(transformed_samples[g]) > 0]
@@ -3649,9 +3636,9 @@ class StatisticalTester:
 
                 if actual_interaction_label and results["p_value"] is not None and results["p_value"] < alpha:
                     try:
-                        posthoc_df = pg.pairwise_tests(data=df, dv=dv, between=between, padjust='tukey', subject=None)
+                        posthoc_df = pg.pairwise_tests(data=df, dv=dv, between=between, padjust='holm', subject=None)
                         if not posthoc_df.empty:
-                            results["posthoc_test"] = "Tukey HSD for Interaction (Pingouin)"
+                            results["posthoc_test"] = "Pairwise t-test with Holm-Sidak correction (Pingouin)"
                             for _, ph_row in posthoc_df.iterrows():
                                 g1_label = str(ph_row.get('A', 'Group1'))
                                 g2_label = str(ph_row.get('B', 'Group2'))
@@ -3663,7 +3650,7 @@ class StatisticalTester:
                                     if len(parts) == 2:
                                         g1_label = parts[0].strip()
                                         g2_label = parts[1].strip()
-                                pval_col = 'p-tukey' if 'p-tukey' in ph_row else 'p-corr' if 'p-corr' in ph_row else 'p-unc'
+                                pval_col = 'p-corr' if 'p-corr' in ph_row else 'p-unc'
                                 confidence_interval = (None, None)
                                 if 'CI95%' in ph_row and isinstance(ph_row['CI95%'], (list, np.ndarray)) and len(ph_row['CI95%']) == 2:
                                     confidence_interval = tuple(ph_row['CI95%'])
@@ -3676,11 +3663,11 @@ class StatisticalTester:
                                 results["pairwise_comparisons"].append({
                                     "group1": g1_label,
                                     "group2": g2_label,
-                                    "test": "Tukey HSD (Pingouin)",
+                                    "test": "Pairwise t-test",
                                     "p_value": float(ph_row[pval_col]),
                                     "statistic": float(ph_row["T"]) if "T" in ph_row else None,
                                     "significant": float(ph_row[pval_col]) < alpha,
-                                    "corrected": "tukey" in pval_col or "corr" in pval_col,
+                                    "corrected": "Holm-Sidak",
                                     "confidence_interval": confidence_interval
                                 })
                         else:
@@ -4060,37 +4047,19 @@ class UIDialogManager:
         return groups[0]  # Default: first group
     
     @staticmethod
-    def reset_dialog_cache():
-        """Resets all cached dialog selections to ensure fresh prompts for new analyses."""
-        if hasattr(UIDialogManager.select_transformation_dialog, '_shown_dialogs'):
-            UIDialogManager.select_transformation_dialog._shown_dialogs = {}
-            print("DEBUG: Dialog cache reset - transformation selection will be prompted again")
-
-    @staticmethod
-    def select_transformation_dialog(parent=None, progress_text=None, column_name=None):
+    def select_transformation_dialog(parent=None, progress_text=None, column_name=None, force_show=False):
         """
         Opens a dialog to select the transformation.
         Uses consistent wording in all cases.
         Returns the name of the transformation (str), or None if cancelled.
+        
+        Parameters:
+        -----------
+        force_show : bool
+            If True, forces the dialog to be shown even if a previous choice was cached
         """
-        # Add memory to prevent showing the dialog multiple times for the same dataset
-        if not hasattr(UIDialogManager.select_transformation_dialog, '_shown_dialogs'):
-            UIDialogManager.select_transformation_dialog._shown_dialogs = {}
-        
-        # Create a unique key for this specific dialog with a consistent format
-        # Normalize the key so the same dialog is only shown once
-        # The "for Advanced Test" format is used in StatisticalAnalyzerApp.open_advanced_tests
-        normalized_progress_text = progress_text
-        if progress_text and ("Advanced Test" in progress_text or 
-                             any(test in progress_text for test in ["mixed_anova", "two_way_anova", "repeated_measures_anova"])):
-            normalized_progress_text = "for Advanced Test"
-            
-        dialog_key = f"{normalized_progress_text}_{column_name}"
-        
-        # Check if we've already shown this dialog
-        if dialog_key in UIDialogManager.select_transformation_dialog._shown_dialogs:
-            # Return the previously selected value without showing dialog again
-            return UIDialogManager.select_transformation_dialog._shown_dialogs[dialog_key]
+        # NO CACHING - Each analysis starts fresh and shows the dialog every time
+        # This ensures consistent behavior between normal tests and advanced tests
         
         dialog = QDialog(parent)
         layout = QVBoxLayout(dialog)
@@ -4131,12 +4100,9 @@ class UIDialogManager:
         if dialog.exec_() == QDialog.Accepted:
             for rb, value in radio_buttons:
                 if rb.isChecked():
-                    # Store the selected value to avoid showing dialog again
-                    UIDialogManager.select_transformation_dialog._shown_dialogs[dialog_key] = value
                     return value
         
-        # If canceled, store None to avoid showing dialog again
-        UIDialogManager.select_transformation_dialog._shown_dialogs[dialog_key] = None
+        # If canceled, return None
         return None
     
 import matplotlib.pyplot as plt
@@ -4812,22 +4778,23 @@ class DataVisualizer:
         data_x = [np.array(data) for data in [samples[group] for group in groups]]
         n_groups = len(groups)
         
-        # Use custom colors if provided, otherwise use defaults
+        # Einheitliche Farblogik: Wenn keine spezifischen Farben für Violin/Box/Points übergeben wurden,
+        # werden die allgemeinen colors verwendet (wie in Bar/Box/Violin)
         if violin_colors is None:
-            violin_colors = ["thistle", "orchid", "gold", "deepskyblue", "yellowgreen", "olivedrab"]
+            violin_colors = colors
         if box_colors is None:
-            box_colors = ["yellowgreen", "olivedrab", "gold", "deepskyblue", "orchid", "thistle"]
+            box_colors = colors
         if point_colors is None:
-            point_colors = ["tomato", "darksalmon", "deepskyblue", "orchid", "yellowgreen", "olivedrab"]
-        
-        # Convert dictionary colors to lists if needed
+            point_colors = colors
+
+        # Falls dict, auf Gruppen abbilden
         if isinstance(violin_colors, dict):
-            violin_colors = [violin_colors.get(group, "thistle") for group in groups]
+            violin_colors = [violin_colors.get(group, colors[i % len(colors)]) for i, group in enumerate(groups)]
         if isinstance(box_colors, dict):
-            box_colors = [box_colors.get(group, "yellowgreen") for group in groups]
+            box_colors = [box_colors.get(group, colors[i % len(colors)]) for i, group in enumerate(groups)]
         if isinstance(point_colors, dict):
-            point_colors = [point_colors.get(group, "tomato") for group in groups]
-        
+            point_colors = [point_colors.get(group, colors[i % len(colors)]) for i, group in enumerate(groups)]
+
         # Use these colors for the legend as well
         actual_legend_colors = {groups[i]: box_colors[i % len(box_colors)] for i in range(len(groups))}
         
@@ -5071,16 +5038,28 @@ class DataVisualizer:
             ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.1%}'))
         elif y_format == 'decimal':
             ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'{x:.2f}'))
-        
+
         # Set limits
         if y_limits:
             ax.set_ylim(y_limits)
         if x_limits:
             ax.set_xlim(x_limits)
-        
+
+        # --- TICK CONTROL: Ensure ticks are always visible unless explicitly removed ---
+        # Always show major ticks on both axes
+        ax.xaxis.set_visible(True)
+        ax.yaxis.set_visible(True)
+        # Ensure tick labels are visible
+        for label in ax.get_xticklabels():
+            label.set_visible(True)
+        for label in ax.get_yticklabels():
+            label.set_visible(True)
+        # Ensure ticks are drawn (for matplotlib >=3.1)
+        ax.tick_params(axis='both', which='both', length=4, width=0.7, direction='out', bottom=True, top=False, left=True, right=False)
+
         # Make sure grid is off by default, only turn on if explicitly requested
         ax.grid(False)  # First turn off all grid lines
-        
+
         # Then conditionally turn on grid if explicitly requested
         if grid_style and grid_style != 'none':
             if grid_style == 'major':
@@ -5089,8 +5068,7 @@ class DataVisualizer:
                 ax.grid(True, which='minor', alpha=grid_alpha, linestyle='-', linewidth=0.5)
             elif grid_style == 'both':
                 ax.grid(True, which='both', alpha=grid_alpha, linestyle='-', linewidth=0.5)
-            ax.grid(True, which='both', alpha=grid_alpha, linestyle='-', linewidth=0.5)
-        
+
         # Spine styling
         if spine_style == 'minimal':
             sns.despine(ax=ax, top=True, right=True)
@@ -5159,7 +5137,38 @@ class DataVisualizer:
         fig.text(0.95, 0.05, watermark_text, 
                 fontsize=8, color='gray', alpha=0.5,
                 ha='right', va='bottom', rotation=0)
+
+    @staticmethod
+    def _apply_final_formatting(ax, groups, plot_type, tight_layout, created_fig, 
+                               subplot_margins, custom_annotations, watermark):
+        """Apply final formatting including custom annotations, watermarks, and layout adjustments"""
+        # Get the figure from the axes
+        fig = ax.figure if hasattr(ax, 'figure') else plt.gcf()
+        
+        # Add custom annotations if provided
+        if custom_annotations:
+            DataVisualizer._add_custom_annotations(ax, custom_annotations)
+        
+        # Add watermark if provided
+        if watermark:
+            DataVisualizer._add_watermark(fig, watermark)
+        
+        # Adjust layout only if a new figure was created
+        if tight_layout and created_fig:
+            if subplot_margins:
+                plt.subplots_adjust(**subplot_margins)
+            else:
+                fig.tight_layout()
     
+
+    @staticmethod
+    def _control_ticks_for_many_groups(ax, groups, plot_type):
+        """
+        Placeholder for tick control logic when there are many groups.
+        Currently does nothing, but can be extended to handle tick label density, rotation, etc.
+        """
+        pass
+
     @staticmethod
     def _save_plot(fig, file_name, groups, formats, dpi):
         """Save plot in multiple formats with absolute paths"""
@@ -5196,6 +5205,14 @@ class DataVisualizer:
         if os.getcwd() != original_dir:
             os.chdir(original_dir)
             print(f"DEBUG PLOT: Restored original directory: {original_dir}")
+
+    @staticmethod
+    def _control_ticks_for_many_groups(ax, groups, plot_type):
+        """
+        Placeholder for tick control logic when there are many groups.
+        Currently does nothing, but can be extended to handle tick label density, rotation, etc.
+        """
+        pass
     
     @staticmethod
     def get_significance_letters(samples, groups, test_recommendation="parametric", alpha=0.05):
@@ -5776,16 +5793,12 @@ class DataVisualizer:
         # Minor Ticks - only on numerical axes
         if config.get('minor_ticks', False):
             plot_type = config.get('plot_type', 'Bar')
-            
-            # For Bar, Box, Violin: minor ticks only on Y-axis (numerical)
-            if plot_type in ['Bar', 'Box', 'Violin']:
-                ax.yaxis.set_minor_locator(plt.MultipleLocator(0.5))  # Auto minor ticks on Y
-                ax.tick_params(axis='y', which='minor', length=3, width=axis_thickness * 0.7)
-            
-            # For Raincloud: minor ticks only on X-axis (numerical)  
-            elif plot_type == 'Raincloud':
-                ax.xaxis.set_minor_locator(plt.MultipleLocator(0.5))  # Auto minor ticks on X
-                ax.tick_params(axis='x', which='minor', length=3, width=axis_thickness * 0.7)
+            # For Bar, Box, Violin: y is numeric, x is categorical
+            # For Raincloud: x is numeric, y is categorical
+            if plot_type == 'Raincloud':
+                DataVisualizer.set_minor_ticks(ax, x_minor=True, y_minor=False)
+            else:
+                DataVisualizer.set_minor_ticks(ax, x_minor=False, y_minor=True)
         
         # Control ticks for many groups to prevent matplotlib errors
         DataVisualizer._control_ticks_for_many_groups(ax, groups, config.get('plot_type', 'Bar'))
@@ -7812,9 +7825,6 @@ class AnalysisManager:
             print(f"Analyzing dataset {i+1}/{len(selected_datasets)}: {dataset_name}")
             
             try:
-                # Reset dialog cache for each dataset to ensure fresh prompts
-                UIDialogManager.reset_dialog_cache()
-                
                 # Analyze single dataset
                 result = AnalysisManager._analyze_single_dataset(
                     file_path=file_path,
@@ -7890,6 +7900,12 @@ class AnalysisManager:
                                error_type, skip_excel, dataset_name, additional_factors, 
                                show_individual_lines, **kwargs):
         from stats_functions import ResultsExporter
+        
+        # CRITICAL FIX: Ensure additional_factors is available in kwargs
+        # since the advanced test logic looks for it there
+        if additional_factors is not None and 'additional_factors' not in kwargs:
+            kwargs['additional_factors'] = additional_factors
+        
         # Basic parameter validation
         if not file_path or not os.path.exists(file_path):
             raise ValueError("Please specify a valid file")
@@ -7939,19 +7955,28 @@ class AnalysisManager:
             # Initialize the result dictionary (important: before first assignments!)
             results = {}
 
-            # Normality and variance check with dataset name
-            transformed_samples, test_recommendation, test_info = StatisticalTester.check_normality_and_variance(
-                groups,
-                filtered_samples,
-                dataset_name=dataset_name,
-                progress_text=kwargs.get('dialog_progress', None),
-                column_name=kwargs.get('dialog_column', None)
-            )
+            # For advanced tests that use prepare_advanced_test, skip the normality check here
+            # as it will be handled in the advanced test flow
+            if kwargs.get('test') in ['mixed_anova', 'two_way_anova', 'repeated_measures_anova']:
+                # Skip normality check - will be handled by prepare_advanced_test
+                transformed_samples = None
+                test_recommendation = None
+                test_info = None
+            else:
+                # Normality and variance check with dataset name
+                transformed_samples, test_recommendation, test_info = StatisticalTester.check_normality_and_variance(
+                    groups,
+                    filtered_samples,
+                    dataset_name=dataset_name,
+                    progress_text=kwargs.get('dialog_progress', None),
+                    column_name=kwargs.get('dialog_column', None)
+                )
             print(f"DEBUG: Test recommendation is '{test_recommendation}'")
-            print(f"DEBUG: Test info transformation: '{test_info.get('transformation')}'")
+            print(f"DEBUG: Test info transformation: '{test_info.get('transformation') if test_info else 'N/A'}'")
 
-            # Write test recommendation to log
-            analysis_log += f"\nTest recommendation: {test_recommendation}\n"
+            # Write test recommendation to log (only if we have one)
+            if test_recommendation:
+                analysis_log += f"\nTest recommendation: {test_recommendation}\n"
 
             # For dependent samples, perform additional validation
             if dependent:
@@ -7977,7 +8002,11 @@ class AnalysisManager:
 
             # Perform the appropriate statistical test - only call ONCE
             if kwargs.get('test') == 'mixed_anova':
-                between_factor, within_factor = kwargs['additional_factors']
+                additional_factors = kwargs.get('additional_factors', [])
+                if len(additional_factors) >= 2:
+                    between_factor, within_factor = additional_factors[0], additional_factors[1]
+                else:
+                    return {"error": "Mixed ANOVA requires two factors (between and within)"}
                 # Step 3: Call prepare_advanced_test first
                 prep = StatisticalTester.prepare_advanced_test(
                     df, 'mixed_anova', value_cols[0], 'Subject', [between_factor], [within_factor]
@@ -8004,6 +8033,84 @@ class AnalysisManager:
                 requested_transform = prep["test_info"].get("transformation", "None")
                 print(f"DEBUG: Requested transformation: {requested_transform}")
                 print(f"DEBUG: Applied transformation: {results.get('transformation')}")
+                # For consistency with the rest of the code, assign results to test_results
+                test_results = results
+                # Also extract the test_info and other variables for the rest of the code
+                test_info = prep["test_info"]
+                test_recommendation = prep["recommendation"]
+                transformed_samples = prep["transformed_samples"]
+            elif kwargs.get('test') == 'two_way_anova':
+                between_factors = kwargs.get('additional_factors', [])
+                # Step 3: Call prepare_advanced_test first
+                prep = StatisticalTester.prepare_advanced_test(
+                    df, 'two_way_anova', value_cols[0], None, between_factors, None
+                )
+                if "error" in prep:
+                    return prep  # or handle error
+
+                # Step 4: Pass outputs to perform_advanced_test
+                results = StatisticalTester.perform_advanced_test(
+                    df=df,
+                    test='two_way_anova',
+                    dv=value_cols[0],
+                    subject=None,
+                    between=between_factors,
+                    within=None,
+                    alpha=0.05,
+                    transformed_samples=prep["transformed_samples"],
+                    recommendation=prep["recommendation"],
+                    test_info=prep["test_info"],
+                    transform_fn=None,
+                    force_parametric=kwargs.get('force_parametric', False)
+                )
+                # Get the transformation type from the test_info
+                requested_transform = prep["test_info"].get("transformation", "None")
+                print(f"DEBUG: Requested transformation: {requested_transform}")
+                print(f"DEBUG: Applied transformation: {results.get('transformation')}")
+                # For consistency with the rest of the code, assign results to test_results
+                test_results = results
+                # Also extract the test_info and other variables for the rest of the code
+                test_info = prep["test_info"]
+                test_recommendation = prep["recommendation"]
+                transformed_samples = prep["transformed_samples"]
+            elif kwargs.get('test') == 'repeated_measures_anova':
+                additional_factors = kwargs.get('additional_factors', [])
+                if len(additional_factors) >= 1:
+                    within_factor = additional_factors[0]  # RM-ANOVA uses within factor
+                else:
+                    return {"error": "Repeated measures ANOVA requires at least one within factor"}
+                # Step 3: Call prepare_advanced_test first
+                prep = StatisticalTester.prepare_advanced_test(
+                    df, 'repeated_measures_anova', value_cols[0], 'Subject', None, [within_factor]
+                )
+                if "error" in prep:
+                    return prep  # or handle error
+
+                # Step 4: Pass outputs to perform_advanced_test
+                results = StatisticalTester.perform_advanced_test(
+                    df=df,
+                    test='repeated_measures_anova',
+                    dv=value_cols[0],
+                    subject='Subject',
+                    between=None,
+                    within=[within_factor],
+                    alpha=0.05,
+                    transformed_samples=prep["transformed_samples"],
+                    recommendation=prep["recommendation"],
+                    test_info=prep["test_info"],
+                    transform_fn=None,
+                    force_parametric=kwargs.get('force_parametric', False)
+                )
+                # Get the transformation type from the test_info
+                requested_transform = prep["test_info"].get("transformation", "None")
+                print(f"DEBUG: Requested transformation: {requested_transform}")
+                print(f"DEBUG: Applied transformation: {results.get('transformation')}")
+                # For consistency with the rest of the code, assign results to test_results
+                test_results = results
+                # Also extract the test_info and other variables for the rest of the code
+                test_info = prep["test_info"]
+                test_recommendation = prep["recommendation"]
+                transformed_samples = prep["transformed_samples"]
             else:
                 # Standard path for simple tests
                 test_results = StatisticalTester.perform_statistical_test(
@@ -8124,38 +8231,39 @@ class AnalysisManager:
                     "analysis_log": "Nonparametric Mixed-Design ANOVA requested but not supported"
                 }    
 
-            # Log before transformation
-            analysis_log += "\nResults of tests before transformation:\n"
-            all_data_normality = test_info["normality_tests"].get("all_data")
-            if all_data_normality and all_data_normality.get("p_value") is not None:
-                analysis_log += f"Shapiro-Wilk test (normality): p = {all_data_normality['p_value']:.4f} - "
-                analysis_log += "Normally distributed\n" if all_data_normality.get('is_normal', False) else "Not normally distributed\n"
-            else:
-                analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
-
-            if test_info["variance_test"].get("p_value") is not None:
-                analysis_log += f"Levene test (variance homogeneity): p = {test_info['variance_test']['p_value']:.4f} - "
-                analysis_log += "Variances homogeneous\n" if test_info['variance_test'].get('equal_variance', False) else "Variances heterogeneous\n"
-            else:
-                analysis_log += "Levene test: Not performed (insufficient data)\n"
-
-            # Log transformation
-            if test_info.get("transformation"):
-                analysis_log += f"\nTransformation: {test_info['transformation'].capitalize()} transformation performed.\n"
-                # Log after transformation
-                analysis_log += "Results of tests after transformation:\n"
-                if test_info["normality_tests"].get("transformed_data", {}).get("p_value") is not None:
-                    analysis_log += f"Shapiro-Wilk test (normality): p = {test_info['normality_tests']['transformed_data']['p_value']:.4f} - "
-                    analysis_log += "Normally distributed\n" if test_info['normality_tests']['transformed_data'].get('is_normal', False) else "Not normally distributed\n"
+            # Log before transformation (only for standard tests that went through normality checking)
+            if test_info:
+                analysis_log += "\nResults of tests before transformation:\n"
+                all_data_normality = test_info["normality_tests"].get("all_data")
+                if all_data_normality and all_data_normality.get("p_value") is not None:
+                    analysis_log += f"Shapiro-Wilk test (normality): p = {all_data_normality['p_value']:.4f} - "
+                    analysis_log += "Normally distributed\n" if all_data_normality.get('is_normal', False) else "Not normally distributed\n"
                 else:
                     analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
-                if test_info["variance_test"].get("transformed", {}).get("p_value") is not None:
-                    analysis_log += f"Levene test (variance homogeneity): p = {test_info['variance_test']['transformed']['p_value']:.4f} - "
-                    analysis_log += "Variances homogeneous\n" if test_info['variance_test']['transformed'].get('equal_variance', False) else "Variances heterogeneous\n"
+
+                if test_info["variance_test"].get("p_value") is not None:
+                    analysis_log += f"Levene test (variance homogeneity): p = {test_info['variance_test']['p_value']:.4f} - "
+                    analysis_log += "Variances homogeneous\n" if test_info['variance_test'].get('equal_variance', False) else "Variances heterogeneous\n"
                 else:
                     analysis_log += "Levene test: Not performed (insufficient data)\n"
-            else:
-                analysis_log += "\nTransformation: No transformation performed.\n"
+
+                # Log transformation
+                if test_info.get("transformation"):
+                    analysis_log += f"\nTransformation: {test_info['transformation'].capitalize()} transformation performed.\n"
+                    # Log after transformation
+                    analysis_log += "Results of tests after transformation:\n"
+                    if test_info["normality_tests"].get("transformed_data", {}).get("p_value") is not None:
+                        analysis_log += f"Shapiro-Wilk test (normality): p = {test_info['normality_tests']['transformed_data']['p_value']:.4f} - "
+                        analysis_log += "Normally distributed\n" if test_info['normality_tests']['transformed_data'].get('is_normal', False) else "Not normally distributed\n"
+                    else:
+                        analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
+                    if test_info["variance_test"].get("transformed", {}).get("p_value") is not None:
+                        analysis_log += f"Levene test (variance homogeneity): p = {test_info['variance_test']['transformed']['p_value']:.4f} - "
+                        analysis_log += "Variances homogeneous\n" if test_info['variance_test']['transformed'].get('equal_variance', False) else "Variances heterogeneous\n"
+                    else:
+                        analysis_log += "Levene test: Not performed (insufficient data)\n"
+                else:
+                    analysis_log += "\nTransformation: No transformation performed.\n"
 
             posthoc_results = None
 
@@ -8218,30 +8326,31 @@ class AnalysisManager:
             print(f"DEBUG: test_results pairwise_comparisons: {len(test_results.get('pairwise_comparisons', []))} items")        
 
 
-            # Make sure normality and variance test results are explicitly set
+            # Make sure normality and variance test results are explicitly set (only if available)
             if test_info and "normality_tests" in test_info:
                 results["normality_tests"] = test_info["normality_tests"]
             if test_info and "variance_test" in test_info:
                 results["variance_test"] = test_info["variance_test"]
 
-            # Make sure test_type/recommendation is set:
-            results["recommendation"] = test_recommendation
+            # Make sure test_type/recommendation is set (only if available):
+            if test_recommendation:
+                results["recommendation"] = test_recommendation
 
             # Merge important transformation and test info into results
             results.update(test_results)
             results.update({
                 "transformed_samples": transformed_samples,
                 "samples": filtered_samples,
-                "transformation": test_info.get("transformation"),
-                "normality_tests": test_info["normality_tests"],
-                "variance_test": test_info["variance_test"],
+                "transformation": test_info.get("transformation") if test_info else None,
+                "normality_tests": test_info.get("normality_tests", {}) if test_info else {},
+                "variance_test": test_info.get("variance_test", {}) if test_info else {},
                 "test_type": test_recommendation
             })
 
             # Nach results.update(test_results):
             print(f"DEBUG: results pairwise_comparisons: {len(results.get('pairwise_comparisons', []))} items")            
 
-            if "boxcox_lambda" in test_info:
+            if test_info and "boxcox_lambda" in test_info:
                 results["boxcox_lambda"] = test_info["boxcox_lambda"]
 
             analysis_log += f"\nTest performed: {results.get('test', 'Not specified')}\n"
@@ -8309,12 +8418,12 @@ class AnalysisManager:
             results['raw_data'] = {g: filtered_samples[g][:] for g in groups}
             if results.get('transformation', 'None') != 'None':
                 results['raw_data_transformed'] = {g: transformed_samples[g][:] for g in groups}
-            results["variance_homogeneity_test"] = test_info.get("variance_test", {})    
+            results["variance_homogeneity_test"] = test_info.get("variance_test", {}) if test_info else {}    
 
             # Add debug statements before Excel export
             print("DEBUG: Assumption tests before Excel export:")
-            print("  Normality tests:", test_info.get("normality_tests", {}))
-            print("  Variance tests:", test_info.get("variance_test", {}))
+            print("  Normality tests:", test_info.get("normality_tests", {}) if test_info else {})
+            print("  Variance tests:", test_info.get("variance_test", {}) if test_info else {})
             print("  Test recommendation:", test_recommendation)
                 
             # Export to Excel
@@ -8558,7 +8667,6 @@ class AnalysisManager:
                 return "\n".join(log)
             analysis_log = build_analysis_log(results, params)
             results["analysis_log"] = analysis_log
-            UIDialogManager.reset_dialog_cache()
             return results
 
         except Exception as e:
@@ -8567,7 +8675,6 @@ class AnalysisManager:
             print(f"Error during analysis: {error_message}")
             import traceback
             traceback.print_exc()
-            UIDialogManager.reset_dialog_cache()
             return {"error": error_message, "analysis_log": analysis_log}       
 
 def get_output_path(file_base, ext):

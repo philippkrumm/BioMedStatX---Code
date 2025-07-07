@@ -62,7 +62,10 @@ def resource_path(relative_path):
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
+        # When running from Python directly, get the script's directory
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up one level to project root
+        base_path = os.path.dirname(script_dir)
     
     return os.path.join(base_path, relative_path)
 
@@ -2277,19 +2280,8 @@ class StatisticalAnalyzerApp(QMainWindow):
                     QMessageBox.critical(self, "Error", f"Error preparing the test: {test_preparation['error']}")
                     return
                 
-                # Transformation needed? If yes, show SEPARATE WINDOW
-                transformation = None
-                # Use the UIDialogManager to maintain consistent dialog state
-                transformation = UIDialogManager.select_transformation_dialog(
-                    parent=self, 
-                    progress_text="for Advanced Test",
-                    column_name=dialog.dvCombo.currentText()
-                )
-                if transformation is None:
-                    # Dialog cancelled
-                    return
-                
-                # Phase 3: Perform test with specified Excel path
+                # Use the prepared results directly - no need for additional dialog
+                # Phase 3: Perform test with specified Excel path using prepared results
                 results = StatisticalTester.perform_advanced_test(
                     df=self.df,
                     test=test_type,
@@ -2297,11 +2289,14 @@ class StatisticalAnalyzerApp(QMainWindow):
                     subject=dialog.subjectCombo.currentText(),
                     between=between,
                     within=within,
-                    alpha=0.05,  # Use default value
-                    force_parametric=False,  # Never force
-                    manual_transform=transformation,
-                    file_name=excel_path,  # NEW: Specific Excel file path
-                    skip_excel=False  # Always create Excel file
+                    alpha=0.05,
+                    force_parametric=False,
+                    # Pass the prepared results to avoid duplicate dialog
+                    transformed_samples=test_preparation["transformed_samples"],
+                    recommendation=test_preparation["recommendation"],
+                    test_info=test_preparation["test_info"],
+                    file_name=excel_path,
+                    skip_excel=False
                 )
 
                 print("DEBUG: After RM ANOVA execution")
@@ -3078,9 +3073,24 @@ class StatisticalAnalyzerApp(QMainWindow):
                 'hatches': plot_config.get('hatches', {}),
             })
 
-        # Additional factors for two-way ANOVA
+        # Additional factors for advanced ANOVAs
         if plot_config.get('additional_factors'):
             kwargs['additional_factors'] = plot_config['additional_factors']
+            
+            # Determine which advanced test to use based on configuration
+            if plot_config['dependent']:
+                # Dependent samples with additional factors
+                # This could be mixed ANOVA or repeated measures ANOVA
+                # The specific logic to distinguish these needs to be implemented
+                # For now, default to mixed ANOVA
+                kwargs['test'] = 'mixed_anova'
+            else:
+                # Independent samples with additional factors = two-way ANOVA
+                kwargs['test'] = 'two_way_anova'
+        elif plot_config['dependent'] and plot_config.get('needs_subject_selection'):
+            # Dependent samples without additional factors but needing subject selection
+            # This suggests repeated measures ANOVA with a single within factor
+            kwargs['test'] = 'repeated_measures_anova'
 
         # Pairwise comparisons
         if plot_config.get('comparisons'):
@@ -3892,7 +3902,7 @@ if __name__ == "__main__":
         
         # Apply stylesheet if available
         try:
-            with open(resource_path("StyleSheet.qss"), "r", encoding="utf-8") as f:
+            with open(resource_path("assets/StyleSheet.qss"), "r", encoding="utf-8") as f:
                 stylesheet = f.read()
                 print("Stylesheet loaded successfully")
         except:

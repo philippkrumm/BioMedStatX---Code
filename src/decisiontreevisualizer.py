@@ -559,16 +559,8 @@ class DecisionTreeVisualizer:
                     # Post-hoc-Testarten nur, wenn ANOVA signifikant war:
                     alpha = results.get("alpha", 0.05)
                     if p_value is not None and p_value < alpha:
-                        if posthoc_test:
-                            if "tukey" in posthoc_test.lower():
-                                highlighted.add(('O1_PH', 'P1_PH_TK'))
-                            elif "dunnett" in posthoc_test.lower() and "t3" not in posthoc_test.lower():
-                                highlighted.add(('O1_PH', 'P1_PH_DN'))
-                            elif "holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower():
-                                highlighted.add(('O1_PH', 'P1_PH_SD'))
-                        else:
-                            # Default, falls kein posthoc_test angegeben wurde
-                            highlighted.add(('O1_PH', 'P1_PH_TK'))
+                        # Call helper function to determine which post-hoc path to highlight
+                        DecisionTreeVisualizer._highlight_posthoc_path(results, highlighted)
             # Generate edge lists for drawing
             highlighted_edges = [(u, v) for u, v in G.edges() if (u, v) in highlighted]
             regular_edges = [(u, v) for u, v in G.edges() if (u, v) not in highlighted]
@@ -745,3 +737,84 @@ class DecisionTreeVisualizer:
             import traceback
             traceback.print_exc()
             return None
+    
+    @staticmethod
+    def _highlight_posthoc_path(results, highlighted):
+        """
+        Helper method to determine which post-hoc test path to highlight based on the results.
+        This centralizes the logic to avoid duplication and conflicts.
+        
+        For One-Way ANOVA: Shows multiple options (user can choose)
+        For Two-Way ANOVA, RM ANOVA, Mixed ANOVA: Shows the actually performed test
+        """
+        test_name = results.get("test", "").lower()
+        posthoc_test = results.get("posthoc_test")
+        
+        # Check if this is a One-Way ANOVA where users should see options
+        is_one_way_anova = ("one-way" in test_name or 
+                           (("anova" in test_name or "one way" in test_name) and 
+                            "two-way" not in test_name and "two way" not in test_name and
+                            "rm" not in test_name and "repeated" not in test_name and
+                            "mixed" not in test_name))
+        
+        if is_one_way_anova and not posthoc_test:
+            # For One-Way ANOVA with no specific post-hoc performed: show all options
+            print(f"DEBUG TREE: One-Way ANOVA detected - showing all post-hoc options for user choice")
+            highlighted.add(('O1_PH', 'P1_PH_TK'))  # Tukey
+            highlighted.add(('O1_PH', 'P1_PH_DN'))  # Dunnett  
+            highlighted.add(('O1_PH', 'P1_PH_SD'))  # Holm-Sidak
+            return
+        
+        # For specific tests or when a post-hoc was actually performed: show the specific path
+        if posthoc_test:
+            print(f"DEBUG TREE: Post-hoc test detected: '{posthoc_test}'")
+            if "tukey" in posthoc_test.lower():
+                print(f"DEBUG TREE: Highlighting Tukey path")
+                highlighted.add(('O1_PH', 'P1_PH_TK'))
+            elif "dunnett" in posthoc_test.lower() and "t3" not in posthoc_test.lower():
+                print(f"DEBUG TREE: Highlighting Dunnett path")
+                highlighted.add(('O1_PH', 'P1_PH_DN'))
+            elif "holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower():
+                print(f"DEBUG TREE: Highlighting Holm-Sidak path")
+                highlighted.add(('O1_PH', 'P1_PH_SD'))
+            else:
+                print(f"DEBUG TREE: Unknown post-hoc test, using default Tukey")
+                highlighted.add(('O1_PH', 'P1_PH_TK'))
+        else:
+            # Check for pairwise comparisons to infer post-hoc test type
+            pairwise_comps = results.get("pairwise_comparisons", [])
+            if pairwise_comps:
+                # Try to infer from the test names in pairwise comparisons
+                first_comp = pairwise_comps[0]
+                test_name_in_comp = first_comp.get("test", "").lower()
+                corrected_method = first_comp.get("corrected", "").lower()
+                print(f"DEBUG TREE: No explicit posthoc_test, inferring from pairwise test: '{test_name_in_comp}' with correction: '{corrected_method}'")
+                
+                if "holm" in test_name_in_comp or "sidak" in test_name_in_comp or "holm" in corrected_method or "sidak" in corrected_method:
+                    print(f"DEBUG TREE: Inferred Holm-Sidak from pairwise test")
+                    highlighted.add(('O1_PH', 'P1_PH_SD'))
+                elif "tukey" in test_name_in_comp:
+                    print(f"DEBUG TREE: Inferred Tukey from pairwise test")
+                    highlighted.add(('O1_PH', 'P1_PH_TK'))
+                elif "dunnett" in test_name_in_comp:
+                    print(f"DEBUG TREE: Inferred Dunnett from pairwise test")
+                    highlighted.add(('O1_PH', 'P1_PH_DN'))
+                else:
+                    print(f"DEBUG TREE: Unknown pairwise test type, showing all options for choice")
+                    if is_one_way_anova:
+                        # Show all options for One-Way ANOVA
+                        highlighted.add(('O1_PH', 'P1_PH_TK'))
+                        highlighted.add(('O1_PH', 'P1_PH_DN'))
+                        highlighted.add(('O1_PH', 'P1_PH_SD'))
+                    else:
+                        highlighted.add(('O1_PH', 'P1_PH_TK'))  # Default to Tukey
+            else:
+                print(f"DEBUG TREE: No post-hoc info available")
+                if is_one_way_anova:
+                    print(f"DEBUG TREE: One-Way ANOVA - showing all post-hoc options for user choice")
+                    highlighted.add(('O1_PH', 'P1_PH_TK'))  # Tukey
+                    highlighted.add(('O1_PH', 'P1_PH_DN'))  # Dunnett
+                    highlighted.add(('O1_PH', 'P1_PH_SD'))  # Holm-Sidak
+                else:
+                    print(f"DEBUG TREE: Using default Tukey for non-One-Way ANOVA")
+                    highlighted.add(('O1_PH', 'P1_PH_TK'))
