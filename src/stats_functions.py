@@ -1059,7 +1059,30 @@ class StatisticalTester:
             else:
                 test_info["normality_tests"][group] = {"statistic": None, "p_value": None, "note": "Too few values"}
                 all_normal = False
-
+        all_values = []
+        for group in valid_groups:
+            all_values.extend(samples[group])
+        if len(all_values) >= 3 and len(set(all_values)) > 1:
+            try:
+                stat, pval = stats.shapiro(all_values)
+                is_normal = pval > 0.05
+                test_info["normality_tests"]["all_data"] = {
+                    "statistic": stat,
+                    "p_value": pval,
+                    "is_normal": is_normal
+                }
+            except Exception as e:
+                test_info["normality_tests"]["all_data"] = {
+                    "statistic": None,
+                    "p_value": None,
+                    "error": str(e)
+                }
+        else:
+            test_info["normality_tests"]["all_data"] = {
+                "statistic": None,
+                "p_value": None,
+                "note": "Too few values"
+            }
         # --- Levene test for homogeneity of variance
         data_for_levene = [samples[g] for g in valid_groups]
         has_equal_variance = True
@@ -1105,10 +1128,10 @@ class StatisticalTester:
                         parent=None, progress_text=progress_text, column_name=column_name
                     )
             except Exception:
-                transformation_type = "none"
+                transformation_type = "log10"  # Default to log10 if dialog fails
                 
             # Only store the transformation selection if it's valid
-            if transformation_type and transformation_type != "none":
+            if transformation_type:
                 test_info["transformation"] = transformation_type
 
                 # Apply the selected transformation
@@ -1145,9 +1168,23 @@ class StatisticalTester:
                         transformed_samples[group] = [np.arcsin(np.sqrt(v)) for v in scaled]
                     test_info["transformation"] = "arcsin_sqrt"
             else:
-                # No transformation selected
-                test_info["transformation"] = "None"
-                return transformed_samples, "non_parametric", test_info
+                # If no transformation was selected or user cancelled, use log10 as default
+                transformation_type = "log10"
+                test_info["transformation"] = transformation_type
+                
+                # Apply log10 transformation as default
+                for group in valid_groups:
+                    values = samples[group]
+                    if all(v > 0 for v in values):
+                        transformed_samples[group] = [np.log10(v) for v in values]
+                    else:
+                        # If negative values exist, add a constant to make all values positive
+                        min_val = min(v for v in values)
+                        offset = abs(min_val) + 1 if min_val <= 0 else 0
+                        transformed_samples[group] = [np.log10(v + offset) for v in values]
+                        print(f"Warning: Negative values detected in {group}. Added offset of {offset}")
+                    print(f"Log10 transformation applied to {group} (as default)")
+                test_info["transformation"] = "log10"
 
             # Post-test after transformation
             try:
@@ -3912,7 +3949,10 @@ class StatisticalTester:
             elif test_recommendation == "parametric":
                 posthoc_choice = "tukey"
             else:
-                posthoc_choice = "dunn"
+                # NEU: Dialog für nichtparametrische Post-hoc-Tests
+                posthoc_choice = UIDialogManager.select_nonparametric_posthoc_dialog(
+                    parent=None, progress_text=None, column_name=None
+                )
 
         try:
             is_parametric = test_recommendation == "parametric"
@@ -3922,6 +3962,84 @@ class StatisticalTester:
                 test_instance = PostHocFactory.create_test(None, is_parametric=is_parametric, is_dependent=True)
                 if test_instance:
                     return test_instance.perform_test(valid_groups, samples, alpha=alpha, parametric=is_parametric)
+                
+                if posthoc_choice == "paired_custom":
+                    # Dialog für Paarauswahl öffnen
+                    pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
+                    if not pairs:
+                        result["error"] = "No pairs selected."
+                        return result
+                    # Paired t-tests für die gewählten Paare
+                    pvals, stats_list = [], []
+                    for g1, g2 in pairs:
+                        x, y = np.array(samples[g1]), np.array(samples[g2])
+                        tstat, p = stats.ttest_rel(x, y)
+                        stats_list.append(tstat)
+                        pvals.append(p)
+                    # Holm-Sidak-Korrektur
+                    from statsmodels.stats.multitest import multipletests
+                    reject, p_adj, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
+                    # Ergebnisse sammeln
+                    for i, (g1, g2) in enumerate(pairs):
+                        ci = PostHocStatistics.calculate_ci_mean_diff(samples[g1], samples[g2], alpha=alpha, paired=True)
+                        d = PostHocStatistics.calculate_cohens_d(samples[g1], samples[g2], paired=True)
+                        PostHocAnalyzer.add_comparison(
+                            result,
+                            group1=g1,
+                            group2=g2,
+                            test="Paired t-test",
+                            p_value=p_adj[i],
+                            statistic=stats_list[i],
+                            corrected=True,
+                            correction_method="Holm-Sidak",
+                            effect_size=d,
+                            effect_size_type="cohen_d",
+                            confidence_interval=ci,
+                            alpha=alpha
+                        )
+                    result["posthoc_test"] = "Custom paired t-tests (Holm-Sidak)"
+                    return result
+                # NEU: Paarweise Mann-Whitney-U (Šidák, benutzerdefinierte Paare)
+                if posthoc_choice == "mw_custom":
+                    pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
+                    if not pairs:
+                        result["error"] = "No pairs selected."
+                        return result
+                    from scipy.stats import mannwhitneyu
+                    import numpy as np
+                    pvals, stats_list = [], []
+                    for g1, g2 in pairs:
+                        x, y = np.array(samples[g1]), np.array(samples[g2])
+                        stat, p = mannwhitneyu(x, y, alternative='two-sided')
+                        stats_list.append(stat)
+                        pvals.append(p)
+                    k = len(pvals)
+                    sidak_ps = [1 - (1 - p)**k for p in pvals]
+                    sidak_ps = [min(p, 1.0) for p in sidak_ps]
+                    for i, (g1, g2) in enumerate(pairs):
+                        n1, n2 = len(samples[g1]), len(samples[g2])
+                        u = stats_list[i]
+                        mean_u = n1 * n2 / 2
+                        std_u = np.sqrt(n1 * n2 * (n1 + n2 + 1) / 12)
+                        z = (u - mean_u) / std_u if std_u > 0 else 0
+                        r = abs(z) / np.sqrt(n1 + n2)
+                        PostHocAnalyzer.add_comparison(
+                            result,
+                            group1=g1,
+                            group2=g2,
+                            test="Mann-Whitney-U",
+                            p_value=sidak_ps[i],
+                            statistic=stats_list[i],
+                            corrected=True,
+                            correction_method="Sidak",
+                            effect_size=r,
+                            effect_size_type="r",
+                            confidence_interval=(None, None),
+                            alpha=alpha
+                        )
+                    result["posthoc_test"] = "Custom Mann-Whitney-U tests (Sidak)"
+                    return result
+
             elif posthoc_choice == "dunnett":
                 if control_group is None or control_group not in valid_groups:
                     result["error"] = "A valid control group must be specified for the Dunnett test."
@@ -3982,7 +4100,7 @@ class UIDialogManager:
         options = [
             ("Tukey-HSD Test", "tukey"),
             ("Dunnett Test", "dunnett"),
-            ("Do not perform a post-hoc test", "none")
+            ("Paired t-tests (Holm-Sidak, custom pairs)", "paired_custom"),
         ]
         radio_buttons = []
         for label, value in options:
@@ -4001,6 +4119,85 @@ class UIDialogManager:
                 if rb.isChecked():
                     return value
         return None
+
+    @staticmethod
+    def select_nonparametric_posthoc_dialog(parent=None, progress_text=None, column_name=None):
+        """
+        Dialog für nichtparametrische Post-hoc-Tests: Dunn oder Mann-Whitney-U (benutzerdefinierte Paare)
+        """
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QRadioButton, QDialogButtonBox
+
+        dialog = QDialog(parent)
+        layout = QVBoxLayout(dialog)
+
+        title = "Nichtparametrischer Post-hoc-Test"
+        if column_name:
+            title += f" für '{column_name}'"
+        if progress_text:
+            title += f" {progress_text}"
+        dialog.setWindowTitle(title)
+
+        info = QLabel("Bitte wählen Sie den gewünschten nichtparametrischen Post-hoc-Test:")
+        layout.addWidget(info)
+
+        options = [
+            ("Dunn-Test (alle Paare, Holm-Sidak)", "dunn"),
+            ("Paarweise Mann-Whitney-U (Šidák, benutzerdefinierte Paare)", "mw_custom"),
+        ]
+        radio_buttons = []
+        for label, value in options:
+            rb = QRadioButton(label)
+            layout.addWidget(rb)
+            radio_buttons.append((rb, value))
+        radio_buttons[0][0].setChecked(True)  # Default: Dunn
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        layout.addWidget(buttons)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        if dialog.exec_() == QDialog.Accepted:
+            for rb, value in radio_buttons:
+                if rb.isChecked():
+                    return value
+        return None
+    
+    @staticmethod
+    def select_custom_pairs_dialog(groups):
+        """
+        Dialog to select custom group pairs for paired t-tests.
+        Returns a list of (group1, group2) tuples.
+        """
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QCheckBox, QDialogButtonBox, QWidget, QHBoxLayout
+
+        class PairSelectionDialog(QDialog):
+            def __init__(self, groups, parent=None):
+                super().__init__(parent)
+                self.setWindowTitle("Select Group Pairs for Paired t-tests")
+                self.selected_pairs = []
+                layout = QVBoxLayout(self)
+                label = QLabel("Select the group pairs to compare (paired t-test):")
+                layout.addWidget(label)
+                self.checkboxes = []
+                for i, g1 in enumerate(groups):
+                    for g2 in groups[i+1:]:
+                        pair_str = f"{g1} vs {g2}"
+                        cb = QCheckBox(pair_str)
+                        layout.addWidget(cb)
+                        self.checkboxes.append((cb, (g1, g2)))
+                buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+                buttons.accepted.connect(self.accept)
+                buttons.rejected.connect(self.reject)
+                layout.addWidget(buttons)
+
+            def accept(self):
+                self.selected_pairs = [pair for cb, pair in self.checkboxes if cb.isChecked()]
+                super().accept()
+
+        dialog = PairSelectionDialog(groups)
+        if dialog.exec_() == QDialog.Accepted:
+            return dialog.selected_pairs
+        return []
 
     @staticmethod
     def select_control_group_dialog(groups):
@@ -4081,7 +4278,6 @@ class UIDialogManager:
             ("Log10 transformation (for positive, right-skewed data)", "log10"),
             ("Box-Cox transformation (automatic lambda optimization)", "boxcox"),
             ("Arcsin square root transformation (for percentages/proportions)", "arcsin_sqrt"),
-            ("No transformation (use non-parametric test)", "none")
         ]
         radio_buttons = []
         for label, value in options:
@@ -4335,7 +4531,7 @@ class DataVisualizer:
             DataVisualizer._add_significance_letters(
                 ax, df, groups, samples, test_recommendation,
                 significance_height_offset, significance_font_size,
-                error_type
+                error_type, pairwise_results=pairwise_results
             )
         
         if show_pairwise_comparisons and compare and pairwise_results:
@@ -4407,6 +4603,7 @@ class DataVisualizer:
         save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
+        pairwise_results=None,
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
         legend_colors=None,
@@ -4479,7 +4676,7 @@ class DataVisualizer:
             DataVisualizer._add_significance_letters(
                 ax, df, groups, samples, test_recommendation,
                 significance_height_offset, significance_font_size,
-                "sd"
+                "sd", pairwise_results=pairwise_results
             )
         if show_legend and show_points:
             if legend_colors is not None:
@@ -4548,6 +4745,7 @@ class DataVisualizer:
         save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
+        pairwise_results=None,
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
         legend_colors=None,
@@ -4639,7 +4837,7 @@ class DataVisualizer:
             DataVisualizer._add_significance_letters(
                 ax, df, groups, samples, test_recommendation,
                 significance_height_offset, significance_font_size,
-                "sd"
+                "sd", pairwise_results=pairwise_results
             )
         if show_legend and show_points:
             if legend_colors is not None:
@@ -4706,6 +4904,7 @@ class DataVisualizer:
         save_plot=True, file_formats=['png', 'svg'],
         file_name=None, group_order=None,
         test_recommendation="parametric",
+        pairwise_results=None,
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
         # Appearance options
@@ -4886,7 +5085,7 @@ class DataVisualizer:
         if show_significance_letters:
             DataVisualizer._add_significance_letters_raincloud(
                 ax, groups, samples, test_recommendation,
-                significance_height_offset, significance_font_size, positions
+                significance_height_offset, significance_font_size, positions, pairwise_results=pairwise_results
             )
             
         # Add legend with correct colors
@@ -5215,6 +5414,135 @@ class DataVisualizer:
         pass
     
     @staticmethod
+    def get_significance_letters_from_posthoc(groups, pairwise_results, alpha=0.05, sweep=True, sort_by=None):
+        """
+        Generate compact letter display (CLD) using Piepho's algorithm.
+        Groups sharing a letter are not significantly different.
+
+        Parameters:
+        -----------
+        groups : list[str]
+            List of group names
+        pairwise_results : list[dict]
+            List of dictionaries containing post-hoc comparison results
+            Each dict should have: 'group1', 'group2', 'p_value'
+        alpha : float
+            Significance level (default: 0.05)
+        sweep : bool
+            If True, perform sweeping to remove redundant letter columns
+        sort_by : dict
+            Dictionary mapping group to value for ordering (e.g., means)
+
+        Returns:
+        --------
+        dict[str, str]
+            Dictionary with groups as keys and significance letters as values
+        """
+        import string
+        import numpy as np
+        
+        # Handle edge cases
+        if len(groups) <= 1:
+            return {groups[0]: 'a'} if groups else {}
+        
+        # Check if this is a Dunnett test (all comparisons are vs control)
+        is_dunnett = False
+        control_group = None
+        if pairwise_results:
+            # Check if all comparisons share one common group (control)
+            all_groups_in_comparisons = set()
+            for comp in pairwise_results:
+                all_groups_in_comparisons.add(comp.get('group1'))
+                all_groups_in_comparisons.add(comp.get('group2'))
+            
+            # Find potential control group (appears in all comparisons)
+            for group in groups:
+                if group in all_groups_in_comparisons:
+                    appears_in_all = True
+                    for comp in pairwise_results:
+                        if group not in [comp.get('group1'), comp.get('group2')]:
+                            appears_in_all = False
+                            break
+                    if appears_in_all:
+                        control_group = group
+                        is_dunnett = True
+                        break
+        
+        print(f"DEBUG: is_dunnett = {is_dunnett}, control_group = {control_group}")
+        
+        # Special handling for Dunnett test
+        if is_dunnett and control_group:
+            letters = {control_group: 'a'}
+            treatment_groups = [g for g in groups if g != control_group]
+
+            # Für jede Behandlungsgruppe einmal p-Wert gegen Kontrolle holen
+            for grp in treatment_groups:
+                # suchen, ob es einen entsprechenden Vergleichseintrag gibt
+                comp = next(
+                    (c for c in pairwise_results
+                    if {c['group1'], c['group2']} == {grp, control_group}),
+                    None
+                )
+                p_val = comp.get('p_value', 1.0) if comp else 1.0
+
+                # signifikant? b, sonst a
+                letters[grp] = 'b' if p_val < alpha else 'a'
+
+            return letters
+        
+        # Original algorithm for full pairwise comparisons
+        # Prepare index mapping and matrix of non-significance
+        n = len(groups)
+        idx = {g: i for i, g in enumerate(groups)}
+        not_diff = np.eye(n, dtype=bool)
+        
+        # Process pairwise results
+        for comp in pairwise_results:
+            g1, g2, p = comp.get('group1'), comp.get('group2'), comp.get('p_value')
+            if p is not None and g1 in idx and g2 in idx and p >= alpha:
+                i, j = idx[g1], idx[g2]
+                not_diff[i, j] = not_diff[j, i] = True
+
+        # Optional: sort groups (as in multcompView) to prioritize letter assignment
+        order = list(range(n))
+        if sort_by:
+            order = sorted(order, key=lambda i: sort_by.get(groups[i], 0), reverse=True)
+        
+        # Build initial columns per Piepho (insert-and-absorb)
+        cols = []
+        for i in order:
+            col = np.zeros(n, dtype=bool)
+            col[i] = True
+            for j in order:
+                if not_diff[i, j]:
+                    col[j] = True
+            # Absorption: merge if superset
+            merged = False
+            for existing in cols:
+                if np.all(existing <= col):
+                    existing[:] = col
+                    merged = True
+                    break
+            if not merged:
+                cols.append(col)
+
+        # Optional sweeping: remove redundant columns
+        if sweep:
+            cols = [col for col in cols if not any(not np.array_equal(col, other) and np.all(col <= other) for other in cols)]
+
+        # Assign letters
+        letters = {g: '' for g in groups}
+        alphabet = string.ascii_lowercase
+        for idx_col, col in enumerate(cols):
+            letter = alphabet[idx_col] if idx_col < len(alphabet) else (
+                alphabet[idx_col//26 - 1] + alphabet[idx_col % 26])
+            for i, included in enumerate(col):
+                if included:
+                    letters[groups[i]] += letter
+
+        return letters
+
+    @staticmethod
     def get_significance_letters(samples, groups, test_recommendation="parametric", alpha=0.05):
         """
         Calculate significance letters for groups based on statistical comparisons.
@@ -5287,12 +5615,39 @@ class DataVisualizer:
     
     @staticmethod
     def _add_significance_letters(ax, df, groups, samples, test_recommendation, 
-                                height_offset, font_size, error_type):
+                                height_offset, font_size, error_type, pairwise_results=None):
         """Add significance letters with enhanced formatting"""
         try:
-            letters = DataVisualizer.get_significance_letters(
-                samples, groups, test_recommendation=test_recommendation
-            )
+            # Debug output
+            print(f"DEBUG: _add_significance_letters called with {len(groups)} groups")
+            print(f"DEBUG: pairwise_results = {pairwise_results}")
+
+            if pairwise_results:
+                means_dict = {g: np.mean(samples[g]) for g in groups}
+
+                # Erkenne volle Paarvergleiche vs. Dunnett-T3
+                n = len(groups)
+                is_full_pairwise = len(pairwise_results) == n*(n-1)//2
+                is_dunnett_t3 = any(
+                    str(c.get('test','')).lower().startswith("dunnett's t3")
+                    for c in pairwise_results
+                )
+                sweep_flag = not (is_full_pairwise or is_dunnett_t3)
+
+                letters = DataVisualizer.get_significance_letters_from_posthoc(
+                    groups,
+                    pairwise_results,
+                    alpha=0.05,
+                    sweep=sweep_flag,
+                    sort_by=means_dict
+                )
+            else:
+                print("DEBUG: no post-hoc results, using simple method for significance letters")
+                letters = DataVisualizer.get_significance_letters(
+                    samples, groups, test_recommendation=test_recommendation
+                )
+
+            print(f"DEBUG: Generated letters = {letters}")
             
             y_max = df['Value'].max()
             y_offset = height_offset * y_max
@@ -5313,6 +5668,7 @@ class DataVisualizer:
             # Place letters with enhanced styling
             for i, group in enumerate(groups):
                 letter = letters[group]
+                print(f"DEBUG: Adding letter '{letter}' to group '{group}' at position {i}")
                 ax.text(i, bar_heights[i] + y_offset, letter,
                        horizontalalignment='center', 
                        verticalalignment='bottom',
@@ -5324,17 +5680,36 @@ class DataVisualizer:
                                 alpha=0.8))
         except Exception as e:
             print(f"Error adding significance letters: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
     @staticmethod
     def _add_significance_letters_raincloud(ax, groups, samples, test_recommendation, 
-                                          height_offset, font_size, positions=None):
+                                          height_offset, font_size, positions=None, pairwise_results=None):
         """Add significance letters for horizontal raincloud plots"""
         try:
             import string
             import numpy as np
-            letters = DataVisualizer.get_significance_letters(
-                samples, groups, test_recommendation=test_recommendation
-            )
+            
+            # Debug output
+            print(f"DEBUG: _add_significance_letters_raincloud called with {len(groups)} groups")
+            print(f"DEBUG: pairwise_results = {pairwise_results}")
+            
+            # Use post-hoc results if available, otherwise fall back to simple method
+            if pairwise_results:
+                print("DEBUG: Using post-hoc results for raincloud significance letters")
+                # Calculate means for sorting
+                means_dict = {group: np.mean(samples[group]) for group in groups}
+                letters = DataVisualizer.get_significance_letters_from_posthoc(
+                    groups, pairwise_results, alpha=0.05, sweep=True, sort_by=means_dict
+                )
+            else:
+                print("DEBUG: Using simple method for raincloud significance letters")
+                letters = DataVisualizer.get_significance_letters(
+                    samples, groups, test_recommendation=test_recommendation
+                )
+            
+            print(f"DEBUG: Generated raincloud letters = {letters}")
             
             # For horizontal raincloud, find the rightmost x position
             x_positions = []
@@ -6619,11 +6994,33 @@ class ResultsExporter:
             row += 1
     
         row += 1
-    
-        # Homogeneity of variances (Levene test)
-        ws.write(row, 0, "Homogeneity of variances (Levene test):", fmt["section_header"])
+
+        if "all_data" in normality_results:
+            all_data_result = normality_results["all_data"]
+            stat = all_data_result.get('statistic', 'N/A')
+            p_val = all_data_result.get('p_value', 'N/A')
+            is_normal = (isinstance(p_val, (float, int)) and p_val > 0.05)
+            normal_text = "Yes" if is_normal else "No"
+            interpretation = (
+                "No significant deviation from normality"
+                if is_normal else
+                "Significant deviation from normality"
+            )
+            values = [
+                "All data",
+                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                normal_text,
+                interpretation
+            ]
+            for col, val in enumerate(values):
+                ws.write(row, col, val, fmt["cell"])
+            row += 1
+
+        # Homogeneity of variances (Brown-Forsythe-Test)
+        ws.write(row, 0, "Homogeneity of variances (Brown-Forsythe-Test):", fmt["section_header"])
         row += 1
-        var_headers = ["Levene statistic", "p-Value", "Variances equal?", "Interpretation"]
+        var_headers = ["Brown-Forsythe statistic", "p-Value", "Variances equal?", "Interpretation"]
         for i, h in enumerate(var_headers):
             ws.write(row, i, h, fmt["header"])
         row += 1
@@ -6730,7 +7127,7 @@ class ResultsExporter:
                 )
                 
                 values = [
-                    "Levene",
+                    "Brown-Forsythe",
                     f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
                     f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
                     var_text,
@@ -8242,10 +8639,10 @@ class AnalysisManager:
                     analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
 
                 if test_info["variance_test"].get("p_value") is not None:
-                    analysis_log += f"Levene test (variance homogeneity): p = {test_info['variance_test']['p_value']:.4f} - "
+                    analysis_log += f"Brown-Forsythe-test (variance homogeneity): p = {test_info['variance_test']['p_value']:.4f} - "
                     analysis_log += "Variances homogeneous\n" if test_info['variance_test'].get('equal_variance', False) else "Variances heterogeneous\n"
                 else:
-                    analysis_log += "Levene test: Not performed (insufficient data)\n"
+                    analysis_log += "Brown-Forsythe-test: Not performed (insufficient data)\n"
 
                 # Log transformation
                 if test_info.get("transformation"):
@@ -8258,10 +8655,10 @@ class AnalysisManager:
                     else:
                         analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
                     if test_info["variance_test"].get("transformed", {}).get("p_value") is not None:
-                        analysis_log += f"Levene test (variance homogeneity): p = {test_info['variance_test']['transformed']['p_value']:.4f} - "
+                        analysis_log += f"Brown-Forsythe-test (variance homogeneity): p = {test_info['variance_test']['transformed']['p_value']:.4f} - "
                         analysis_log += "Variances homogeneous\n" if test_info['variance_test']['transformed'].get('equal_variance', False) else "Variances heterogeneous\n"
                     else:
-                        analysis_log += "Levene test: Not performed (insufficient data)\n"
+                        analysis_log += "Brown-Forsythe-test: Not performed (insufficient data)\n"
                 else:
                     analysis_log += "\nTransformation: No transformation performed.\n"
 
@@ -8494,6 +8891,7 @@ class AnalysisManager:
                         x_label=x_label, y_label=y_label,
                         title=title, save_plot=save_plot,
                         show_points=True, point_size=80, point_alpha=0.8,
+                        pairwise_results=pairwise_comparisons,
                         file_name=file_base, legend_colors=colors)
                 elif plot_type == "Violin":
                     # Ensure show_points is always True for violin plots  
@@ -8504,6 +8902,7 @@ class AnalysisManager:
                         x_label=x_label, y_label=y_label,
                         title=title, save_plot=save_plot,
                         show_points=True, point_size=80, point_alpha=0.8,
+                        pairwise_results=pairwise_comparisons,
                         file_name=file_base, legend_colors=colors)
                 elif plot_type == "Strip":
                     # Strip plot doesn't exist, fall back to box plot with points
@@ -8514,6 +8913,7 @@ class AnalysisManager:
                         x_label=x_label, y_label=y_label,
                         title=title, save_plot=save_plot,
                         show_points=True, point_size=80, point_alpha=0.8,
+                        pairwise_results=pairwise_comparisons,
                         file_name=file_base, legend_colors=colors)
                 elif plot_type == "Raincloud":
                     # Ensure show_points is always True for raincloud plots
@@ -8524,6 +8924,7 @@ class AnalysisManager:
                         x_label=x_label, y_label=y_label,
                         title=title, save_plot=save_plot,
                         show_points=True, point_size=80, point_alpha=0.8,
+                        pairwise_results=pairwise_comparisons,
                         file_name=file_base, legend_colors=colors)
                 else:
                     # Fallback to bar plot for unknown plot types
@@ -8620,7 +9021,7 @@ class AnalysisManager:
                 if 'normality_p' in results:
                     log.append(f"Shapiro-Wilk test (normality): p = {results['normality_p']:.4f} - {'Normally distributed' if results['normality_p'] > 0.05 else 'Not normally distributed'}")
                 if 'levene_p' in results:
-                    log.append(f"Levene test (variance homogeneity): p = {results['levene_p']:.4f} - {'Variances homogeneous' if results['levene_p'] > 0.05 else 'Variances heterogeneous'}")
+                    log.append(f"Brown-Forsythe test (variance homogeneity): p = {results['levene_p']:.4f} - {'Variances homogeneous' if results['levene_p'] > 0.05 else 'Variances heterogeneous'}")
                 if 'transformation' in results:
                     log.append(f"Transformation: {results['transformation'] if results['transformation'] else 'No transformation performed.'}")
                 if 'test' in results:

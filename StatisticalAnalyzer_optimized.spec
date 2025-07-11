@@ -82,7 +82,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,
+    console=True,
 )
 
 coll = COLLECT(

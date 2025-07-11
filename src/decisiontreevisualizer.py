@@ -100,9 +100,6 @@ class DecisionTreeVisualizer:
             if results.get("analysis_log", ""):
                 if "Switching to nonparametric" in results.get("analysis_log", ""):
                     auto_switched = True
-            # Also check if auto_nonparametric flag was set
-            if results.get("auto_nonparametric", False):
-                auto_switched = True
             # Check test name for indicators
             if test_name.lower().startswith("nonparametric_"):
                 auto_switched = True
@@ -189,9 +186,6 @@ class DecisionTreeVisualizer:
                 'B': {"label": f"Check Assumptions\nShapiro-Wilk: {is_normal}\nLevene: {has_equal_variance}", "pos": (0, 12.5)},
                 'C': {"label": f"Assumptions{': ' + ('Met' if is_normal and has_equal_variance else 'Not Met')}", "pos": (0, 11)},
 
-                # Auto-NP node
-                'AUTO_NP': {"label": "Auto-switch\nto Non-parametric\nAlternative", "pos": (4, 9.5)},
-
                 # Transformation branch point
                 'D1': {"label": f"No Transformation\nNeeded", "pos": (-2, 9.5)},
                 'D2': {"label": f"Apply Transformation\n{transformation}", "pos": (2, 9.5)},
@@ -260,15 +254,14 @@ class DecisionTreeVisualizer:
                 'K2_M_IND': {"label": "Kruskal-Wallis", "pos": (5.5, 1)},
                 'NP_M_IND': {"label": "Non-parametric\nTwo-Way ANOVA", "pos": (7, 1)},
                 
-                # Tests under dependent samples (FIXED: Added Friedman)
+                # Tests under dependent samples
                 'NP_M_DEP': {"label": "Non-parametric\nRM ANOVA", "pos": (8.75, 1)},
                 'NP_M_MIX': {"label": "Non-parametric\nMixed ANOVA", "pos": (10.24, 1)},
                 
                 # Post-hoc nodes for non-parametric branch
                 'L2_PH': {"label": "Post-hoc Tests", "pos": (7.75, -3)},
                 'M2_PH_DU': {"label": "Dunn Test", "pos": (6.25, -4)},
-                'NP_PH_MWU': {"label": "Pairwise\nMann-Whitney U", "pos": (7.75, -4)},
-                'NP_PH_WILC': {"label": "Pairwise\nWilcoxon", "pos": (9.25, -4)},
+                'M2_PH_MWU': {"label": "Pairwise Mann-Whitney-U\n(Sidak, custom pairs)", "pos": (9.25, -4)},
             }
 
             # Add nodes to graph
@@ -287,10 +280,6 @@ class DecisionTreeVisualizer:
                 ('D2', 'E'),  # Re-check after transformation
                 ('E', 'F'),   # Go to test recommendation after re-check
                 ('D1', 'F'),  # Skip re-check if no transformation
-
-                # Auto-switch to non-parametric
-                ('C', 'AUTO_NP'),
-                ('AUTO_NP', 'G2'),
 
                 # Welch tests - direct from test recommendation
                 ('F', 'WELCH_T_TEST'),      # Two groups with unequal variances
@@ -368,8 +357,7 @@ class DecisionTreeVisualizer:
 
                 # From central post-hoc node to specific tests
                 ('L2_PH', 'M2_PH_DU'),        # Post-hoc -> Dunn Test
-                ('L2_PH', 'NP_PH_MWU'),       # Post-hoc -> Pairwise Mann-Whitney U
-                ('L2_PH', 'NP_PH_WILC'),      # Post-hoc -> Pairwise Wilcoxon
+                ('L2_PH', 'M2_PH_MWU'),  # Post-hoc -> Pairwise Mann-Whitney-U
             }
 
             # Add edges to graph
@@ -388,9 +376,6 @@ class DecisionTreeVisualizer:
                 highlighted.add(('C', 'D2'))
                 highlighted.add(('D2', 'E'))
                 highlighted.add(('E', 'F'))
-            elif auto_switched:
-                highlighted.add(('C', 'AUTO_NP'))
-                highlighted.add(('AUTO_NP', 'G2'))
             else:
                 highlighted.add(('C', 'D1'))
                 highlighted.add(('D1', 'F'))
@@ -585,7 +570,8 @@ class DecisionTreeVisualizer:
                 "Parametric Test", "Non-parametric Test", "Group Structure",
                 "Two Groups", "Multiple Groups", "Independent Samples",
                 "Dependent Samples", "Sphericity Check", "Repeated Measures",
-                "Mixed Design", "Post-hoc Tests"
+                "Mixed Design", "Post-hoc Tests",
+                "Independent Groups"  # <-- add this line
             }
 
             def is_always_square(node_id):
@@ -642,9 +628,9 @@ class DecisionTreeVisualizer:
                 Patch(facecolor='#ffcccc', edgecolor='black', label='Steps performed'),
                 Patch(facecolor='white', edgecolor='black', label='Alternative steps'),
                 Line2D([0], [0], marker='s', color='none', markerfacecolor='#ffcccc', 
-                    markeredgecolor='black', markersize=15, label='Parametric tests'),
+                    markeredgecolor='black', markersize=15, label='Decision nodes'),
                 Line2D([0], [0], marker='o', color='none', markerfacecolor='#ffcccc',
-                    markeredgecolor='black', markersize=15, label='Non-parametric tests'),
+                    markeredgecolor='black', markersize=15, label='Statistical tests'),
             ]
 
             # Create legend with larger font size
@@ -777,6 +763,13 @@ class DecisionTreeVisualizer:
             elif "holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower():
                 print(f"DEBUG TREE: Highlighting Holm-Sidak path")
                 highlighted.add(('O1_PH', 'P1_PH_SD'))
+            # NEU: Nichtparametrische Post-hoc-Tests
+            elif "mann-whitney" in posthoc_test.lower():
+                print(f"DEBUG TREE: Highlighting Pairwise Mann-Whitney-U path")
+                highlighted.add(('L2_PH', 'M2_PH_MWU'))
+            elif "dunn" in posthoc_test.lower():
+                print(f"DEBUG TREE: Highlighting Dunn path")
+                highlighted.add(('L2_PH', 'M2_PH_DU'))
             else:
                 print(f"DEBUG TREE: Unknown post-hoc test, using default Tukey")
                 highlighted.add(('O1_PH', 'P1_PH_TK'))
@@ -818,3 +811,35 @@ class DecisionTreeVisualizer:
                 else:
                     print(f"DEBUG TREE: Using default Tukey for non-One-Way ANOVA")
                     highlighted.add(('O1_PH', 'P1_PH_TK'))
+
+def test_decision_tree_visualization():
+    # Beispielhafte Ergebnisse für einen One-Way-ANOVA mit signifikantem Ergebnis und Tukey-Posthoc
+    results = {
+        "test": "One-way ANOVA",
+        "test_recommendation": "parametric",
+        "transformation": "None",
+        "p_value": 0.002,
+        "alpha": 0.05,
+        "groups": ["A", "B", "C"],
+        "normality_tests": {
+            "A": {"is_normal": True},
+            "B": {"is_normal": True},
+            "C": {"is_normal": True},
+            "all_data": {"is_normal": True}
+        },
+        "variance_test": {"equal_variance": True},
+        "posthoc_test": "Tukey",
+        "pairwise_comparisons": [
+            {"groups": ("A", "B"), "p_value": 0.01, "test": "Tukey"},
+            {"groups": ("A", "C"), "p_value": 0.03, "test": "Tukey"},
+            {"groups": ("B", "C"), "p_value": 0.20, "test": "Tukey"}
+        ]
+    }
+    # Generiere und speichere den Entscheidungsbaum
+    output_path = DecisionTreeVisualizer.visualize(results, output_path="decision_tree_example")
+    print(f"Decision tree saved to: {output_path}")
+
+# Zum Testen einfach aufrufen:
+if __name__ == "__main__":
+    test_decision_tree_visualization()
+    

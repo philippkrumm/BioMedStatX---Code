@@ -2,7 +2,7 @@
 Plot Aesthetics Dialog mit Tab-Interface und Live-Preview
 Ermöglicht umfassende Anpassung der Plot-Erscheinung
 """
-
+from PyQt5.QtWidgets import QDesktopWidget
 import sys
 import os
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, 
@@ -898,7 +898,14 @@ class PlotAestheticsDialog(QDialog):
         
         self.setWindowTitle("Plot Appearance Settings")
         self.setModal(True)
-        self.resize(1600, 900)  # Deutlich breiter und höher
+        screen = QDesktopWidget().screenGeometry()
+        width = int(screen.width() * 0.72)
+        height = int(screen.height() * 0.72)
+        self.resize(width, height)
+        self.move(
+            (screen.width() - width) // 2,
+            (screen.height() - height) // 2
+        )
         
         self.init_ui()
         self.connect_signals()

@@ -244,36 +244,3 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
         """
         if config:
             self.default_config.update(config)
-
-
-# Test-Funktion für eigenständige Verwendung
-if __name__ == "__main__":
-    from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
-    
-    app = QApplication(sys.argv)
-    
-    # Test-Daten
-    test_groups = ['Group A', 'Group B', 'Group C']
-    test_samples = {
-        'Group A': np.random.normal(10, 2, 50),
-        'Group B': np.random.normal(12, 3, 45),
-        'Group C': np.random.normal(8, 1.5, 55)
-    }
-    
-    # Hauptfenster
-    main_window = QMainWindow()
-    central_widget = QWidget()
-    layout = QVBoxLayout(central_widget)
-    
-    # Preview Widget
-    preview = PlotPreviewWidget()
-    preview.set_data(test_groups, test_samples)
-    preview.update_plot()
-    
-    layout.addWidget(preview)
-    main_window.setCentralWidget(central_widget)
-    main_window.setWindowTitle("Plot Preview Test")
-    main_window.resize(600, 400)
-    main_window.show()
-    
-    sys.exit(app.exec_())

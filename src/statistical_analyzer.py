@@ -1,7 +1,7 @@
 import sys
 import time 
 import os
-
+from PyQt5.QtWidgets import QDesktopWidget
 # Core imports - always needed
 import numpy as np
 import pandas as pd
@@ -575,10 +575,8 @@ class AdvancedTestDialog(QDialog):
         self.withinList.setEnabled(is_mixed or is_repeated)
         
         # Between factors only for Mixed ANOVA or Two-Way ANOVA
-        self.betweenList.setEnabled(is_mixed or is_two_way)    
-        
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QGroupBox, QHBoxLayout, QListWidget, QPushButton, QGridLayout, QLabel, QLineEdit, QCheckBox, QRadioButton, QButtonGroup, QFormLayout, QDialogButtonBox, QColorDialog, QMessageBox
-import traceback
+        self.betweenList.setEnabled(is_mixed or is_two_way)
+
 
 # --- Unified PlotConfigDialog (new system) ---
 class PlotConfigDialog(QDialog):
@@ -590,6 +588,14 @@ class PlotConfigDialog(QDialog):
             QMessageBox.warning(parent, "Warning", "There are duplicate group names!")
             # Optional: raise ValueError("Duplicate groups for PlotConfigDialog.")
         super().__init__(parent)
+        screen = QDesktopWidget().screenGeometry()
+        width = int(screen.width() * 0.40)
+        height = int(screen.height() * 0.50)
+        self.resize(width, height)
+        self.move(
+            (screen.width() - width) // 2,
+            (screen.height() - height) // 2
+        )
         # Remove the question mark from the window
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Configure Plot")
@@ -1321,7 +1327,6 @@ class TransformationDialog(QDialog):
         self.log10RB = QRadioButton("Log10 transformation (for positive, right-skewed data)")
         self.boxcoxRB = QRadioButton("Box-Cox transformation (automatic lambda optimization)")
         self.arcsinRB = QRadioButton("Arcsin square root transformation (for percentages/proportions)")
-        self.noTransformRB = QRadioButton("No transformation (use non-parametric test)")
         
         # Default selection
         self.log10RB.setChecked(True)
@@ -1330,7 +1335,6 @@ class TransformationDialog(QDialog):
         layout.addWidget(self.log10RB)
         layout.addWidget(self.boxcoxRB)
         layout.addWidget(self.arcsinRB)
-        layout.addWidget(self.noTransformRB)
         
         # Buttons
         buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -1341,15 +1345,13 @@ class TransformationDialog(QDialog):
         self.setLayout(layout)
         
     def get_transformation(self):
-        if self.noTransformRB.isChecked():
-            return None
-        elif self.log10RB.isChecked():
+        if self.log10RB.isChecked():
             return "log10"
         elif self.boxcoxRB.isChecked():
             return "boxcox"
         elif self.arcsinRB.isChecked():
             return "arcsin_sqrt"
-        return None
+        return "log10"  # Default fallback
 
 class OutlierDetectionDialog(QDialog):
     """Dialog for configuring outlier detection analysis"""
@@ -1588,6 +1590,14 @@ class StatisticalAnalyzerApp(QMainWindow):
     def __init__(self):
         """Initializes the application with all UI elements."""
         super().__init__()
+        screen = QDesktopWidget().screenGeometry()
+        width = int(screen.width() * 0.72)
+        height = int(screen.height() * 0.72)
+        self.resize(width, height)
+        self.move(
+            (screen.width() - width) // 2,
+            (screen.height() - height) // 2
+        )
         self.setWindowTitle("BioMedStatX")
         self.setGeometry(100, 50, 1600, 1300)
         
