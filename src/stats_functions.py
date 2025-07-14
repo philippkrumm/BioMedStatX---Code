@@ -927,12 +927,31 @@ class DataImporter:
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
+
 try:
     import scikit_posthocs as sp
     HAS_SCPH = True
 except ImportError:
-    HAS_SCPH = False      
-    
+    HAS_SCPH = False
+
+# Robust import for nonparametricanovas: works as script or module
+try:
+    from nonparametricanovas import GLMMTwoWayANOVA, GEERMANOVA, GLMMMixedANOVA, auto_anova_decision
+except ImportError:
+    import sys as _sys
+    import os as _os
+    _src_dir = _os.path.dirname(_os.path.abspath(__file__))
+    _parent_dir = _os.path.abspath(_os.path.join(_src_dir, os.pardir))
+    if _parent_dir not in _sys.path:
+        _sys.path.insert(0, _parent_dir)
+    try:
+        from nonparametricanovas import GLMMTwoWayANOVA, GEERMANOVA, GLMMMixedANOVA, auto_anova_decision
+    except ImportError as e:
+        raise ImportError(
+            "Could not import nonparametricanovas. Tried both absolute and sys.path hack. "
+            "Current sys.path: {}. Error: {}".format(_sys.path, e)
+        )
+
 class StatisticalTester:
     @staticmethod
     def _standardize_results(results):
@@ -1133,6 +1152,7 @@ class StatisticalTester:
             # Only store the transformation selection if it's valid
             if transformation_type:
                 test_info["transformation"] = transformation_type
+                print(f"DEBUG: Transformation wurde gesetzt auf: {test_info['transformation']}")
 
                 # Apply the selected transformation
                 if transformation_type == "log10":
@@ -1205,6 +1225,24 @@ class StatisticalTester:
                 test_info["normality_tests"]["transformed_data"] = {
                     "statistic": None, "p_value": None, "error": str(e)
                 }
+        # Nur wenn Transformation durchgeführt wurde: Shapiro-Wilk pro Gruppe auf transformierten Daten und Levene-Test
+        print(f"DEBUG: Wert von test_info['transformation']: {test_info.get('transformation')}")
+        if test_info.get("transformation") not in [None, "No further"]:
+            test_info["normality_tests"]["transformed_groups"] = {}
+            for group in valid_groups:
+                values = transformed_samples[group]
+                if len(values) >= 3 and len(set(values)) > 1:
+                    try:
+                        stat, pval = stats.shapiro(values)
+                        is_normal = pval > 0.05
+                        test_info["normality_tests"]["transformed_groups"][group] = {
+                            "statistic": stat, "p_value": pval, "is_normal": is_normal
+                        }
+                    except Exception as e:
+                        test_info["normality_tests"]["transformed_groups"][group] = {"statistic": None, "p_value": None, "error": str(e)}
+                else:
+                    test_info["normality_tests"]["transformed_groups"][group] = {"statistic": None, "p_value": None, "note": "Too few values"}
+            # Levene-Test auf transformierten Daten
             try:
                 data_for_levene_trans = [transformed_samples[g] for g in valid_groups]
                 if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene_trans):
@@ -2274,7 +2312,13 @@ class StatisticalTester:
                     # We already have the results from prepare_advanced_test, no need to call again
                     print("DEBUG: Using existing test results from prepare_advanced_test")
             
+
             print("DEBUG: transformed_samples =", transformed_samples)
+            print("DEBUG: samples =", samples)
+            # Patch: If transformed_samples is None, fallback to a copy of samples
+            if transformed_samples is None:
+                print("WARNING: transformed_samples is None, falling back to a copy of samples.")
+                transformed_samples = {k: v.copy() for k, v in samples.items()}
             valid_groups = [g for g in groups if g in transformed_samples and len(transformed_samples[g]) > 0]
             print("DEBUG: valid_groups =", valid_groups)
             print("DEBUG: recommendation =", recommendation)
@@ -2436,48 +2480,73 @@ class StatisticalTester:
                     res["excel_file"] = excel_file
                 return res
 
-            else:  # non-parametric path
-                # DISABLED: Nonparametric fallbacks are not yet supported
-                # When parametric assumptions are violated, provide informational message
-                # instead of automatically running nonparametric alternatives
-                test_names = {
-                    'two_way_anova': 'NonParametricTwoWayANOVA (available in nonparametricanovas.py)',
-                    'repeated_measures_anova': 'NonParametricRMANOVA (available in nonparametricanovas.py)',
-                    'mixed_anova': 'NonParametricMixedANOVA (available in nonparametricanovas.py)'
-                }
-                
-                suggested_test = test_names.get(test, 'Non-parametric alternative')
-                
+
+            else:  # robust fallback path (GLMM/GEE-based)
+                # Select and run the appropriate robust method
+                robust_result = None
+                robust_method = None
+                try:
+                    if test == 'two_way_anova':
+                        robust_method = GLMMTwoWayANOVA
+                        robust_result = GLMMTwoWayANOVA(df=df, dv=dv, factors=between, alpha=alpha).run()
+                    elif test == 'repeated_measures_anova':
+                        robust_method = GEERMANOVA
+                        robust_result = GEERMANOVA(df=df, dv=dv, subject=subject, within=within, alpha=alpha).run()
+                    elif test == 'mixed_anova':
+                        robust_method = GLMMMixedANOVA
+                        robust_result = GLMMMixedANOVA(df=df, dv=dv, subject=subject, between=between, within=within, alpha=alpha).run()
+                    else:
+                        # Fallback: use auto decision logic
+                        robust_method = auto_anova_decision
+                        robust_result = auto_anova_decision(df=df, dv=dv, subject=subject, between=between, within=within, alpha=alpha)
+                except Exception as robust_e:
+                    import traceback
+                    print(f"ERROR in robust fallback: {str(robust_e)}")
+                    traceback.print_exc()
+                    robust_result = {
+                        "test": f"Robust {test} (failed)",
+                        "test_info": test_info,
+                        "recommendation": "robust_fallback",
+                        "error": f"Error running robust fallback: {str(robust_e)}",
+                        "parametric_violated": True
+                    }
+
+                # Format result to match parametric structure
                 result = {
-                    "test": f"{test} (parametric assumptions violated)",
+                    "test": robust_result.get("test", f"Robust {test}"),
                     "test_info": test_info,
-                    "recommendation": "non_parametric",
-                    "error": f"Nonparametric alternatives are currently disabled. The {suggested_test} class is available in nonparametricanovas.py but nonparametric fallbacks are disabled for this analysis.",
+                    "recommendation": "robust_fallback",
+                    "robust_method": robust_method.__name__ if robust_method else None,
                     "parametric_violated": True,
-                    "suggested_alternative": suggested_test
+                    "raw_data": original_samples,
+                    "robust_result": robust_result
                 }
-                
-                # Generate analysis log for the information message
+                # Copy over key stats if present
+                for key in ["p_value", "statistic", "summary", "model", "diagnostics", "pairwise_comparisons", "posthoc_test"]:
+                    if key in robust_result:
+                        result[key] = robust_result[key]
+                # Add transformation info if present
+                if transformation_type:
+                    result["transformation"] = transformation_type
+                # Excel export
                 if not skip_excel:
-                    print(f"DEBUG: Directory before Excel export: {os.getcwd()}")
                     analysis_log = []
                     analysis_log.append(f"Advanced Test Analysis: {test}")
                     analysis_log.append(f"Dataset: {dv}")
-                    analysis_log.append(f"Test recommendation: {recommendation}")
+                    analysis_log.append(f"Test recommendation: robust_fallback (GLMM/GEE)")
                     if transformation_type:
                         analysis_log.append(f"Applied transformation: {transformation_type}")
-                    analysis_log.append(f"Result: Parametric assumptions violated")
-                    analysis_log.append(f"Suggested alternative: {suggested_test} class (available in nonparametricanovas.py)")
-                    analysis_log.append("Note: Nonparametric alternatives are currently disabled for this analysis")
-                    
+                    if "p_value" in result:
+                        if result["p_value"] is not None and result["p_value"] < alpha:
+                            analysis_log.append(f"Result: Significant difference found (p = {result['p_value']:.4f})")
+                        else:
+                            analysis_log.append(f"Result: No significant difference (p = {result['p_value']:.4f})")
+                    else:
+                        analysis_log.append("Result: Robust test performed (see details)")
                     analysis_log_text = "\n".join(analysis_log)
-                    
-                    # Create output file name
                     output_file = f"{file_name}_results.xlsx" if file_name else get_output_path(
-                        f"{test}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", 
-                        "xlsx"
+                        f"{test}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "xlsx"
                     )
-                    
                     try:
                         ResultsExporter.export_results_to_excel(result, output_file, analysis_log_text)
                         result["excel_file"] = output_file
@@ -2485,129 +2554,8 @@ class StatisticalTester:
                     except Exception as export_e:
                         print(f"Excel export could not be performed: {export_e}")
                         result["excel_export_error"] = str(export_e)
-                
                 return result
-                
-                # COMMENTED OUT: Original nonparametric fallback code
-                # print("DEBUG TREE: Taking non-parametric path - using NonParametricFactory")
-                # try:
-                #     # Map ANOVA test types to non-parametric design types
-                #     np_design_type = {
-                #         'two_way_anova': 'two_way',
-                #         'repeated_measures_anova': 'rm_anova',
-                #         'mixed_anova': 'mixed_anova'
-                #     }.get(test)
-                #     print(f"DEBUG: Using non-parametric analysis with design type: {np_design_type}")
-                #     print(f"DEBUG: Creating non-parametric test from factory...")
-                #     
-                #     if np_design_type:
-                #         # Create the appropriate non-parametric test
-                #         np_test = NonParametricFactory.create_nonparametric_test(np_design_type)
-                #         
-                #         # Run the test with appropriate parameters based on type
-                #         if test == 'two_way_anova':
-                #             result = np_test.run(df=df_transformed, dv=dv, factors=between)
-                #         elif test == 'repeated_measures_anova':
-                #             result = np_test.run(df=df_transformed, dv=dv, subject=subject, within=within)
-                #         elif test == 'mixed_anova':
-                #             result = np_test.run(df=df_transformed, dv=dv, subject=subject, between=between, within=within)
-                #             
-                #         # Standardize the results for export
-                #         result = NonParametricFactory.standardize_results_for_export(result)
-                #         
-                #         # Add info about the transformation if one was applied
-                #         if transformation_type:
-                #             result["transformation"] = transformation_type
-                #             
-                #         # Add test info
-                #         result["test_info"] = test_info
-                #         result["recommendation"] = "non_parametric"
-                #         
-                #     else:
-                #         # Fallback if unknown test type
-                #         test_names = {
-                #             'two_way_anova': 'Scheirer-Ray-Hare test',
-                #             'repeated_measures_anova': 'Friedman test',
-                #             'mixed_anova': 'Aligned Rank Transform ANOVA'
-                #         }
-                #         
-                #         result = {
-                #             "test": f"{test_names.get(test, 'Non-parametric alternative')} (not performed)",
-                #             "test_info": test_info,
-                #             "recommendation": "non_parametric",
-                #             "error": "Unknown test type for non-parametric analysis"
-                #         }
-                #         
-                #     # FIXED: Excel export moved inside the try block
-                #     if not skip_excel:
-                #         # Generate analysis log
-                #         analysis_log = []
-                #         analysis_log.append(f"Advanced Test Analysis: {test}")
-                #         analysis_log.append(f"Dataset: {dv}")
-                #         analysis_log.append(f"Test recommendation: {recommendation}")
-                #         if transformation_type:
-                #             analysis_log.append(f"Applied transformation: {transformation_type}")
-                #         
-                #         test_name = result.get("test", test)
-                #         p_value = result.get("p_value")
-                #         if p_value is not None:
-                #             if p_value < alpha:
-                #                 analysis_log.append(f"Result: Significant difference found (p = {p_value:.4f})")
-                #             else:
-                #                 analysis_log.append(f"Result: No significant difference (p = {p_value:.4f})")
-                #         else:
-                #             analysis_log.append("Result: Test could not be completed")
-                #         
-                #         analysis_log_text = "\n".join(analysis_log)
-                #         
-                #         # Create output file name
-                #         output_file = f"{file_name}_results.xlsx" if file_name else get_output_path(
-                #             f"{test}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", 
-                #             "xlsx"
-                #         )
-                #         
-                #         try:
-                #             ResultsExporter.export_results_to_excel(result, output_file, analysis_log_text)
-                #             result["excel_file"] = output_file
-                #             print(f"Results exported to: {output_file}")
-                #         except Exception as export_e:
-                #             print(f"Excel export could not be performed: {export_e}")
-                #             result["excel_export_error"] = str(export_e)
-                #     
-                #     return result
-                #     
-                # except Exception as e:
-                #     import traceback
-                #     print(f"ERROR in non-parametric test execution: {str(e)}")
-                #     traceback.print_exc()
-                #     
-                #     # FIXED: Error handling moved inside the except block where 'e' is defined
-                #     result = {
-                #         "test": f"Non-parametric {test} (failed)",
-                #         "test_info": test_info,
-                #         "recommendation": "non_parametric",
-                #         "error": f"Error running non-parametric test: {str(e)}"
-                #     }
-                #     
-                #     # Initialize an analysis log for the error case
-                #     analysis_log = [
-                #         f"Error in non-parametric test execution: {str(e)}",
-                #         "The analysis could not be completed successfully.",
-                #         f"Test type: {test}",
-                #         f"Recommendation: {recommendation}"
-                #     ]
-                #     analysis_log = "\n".join(analysis_log)
-                #     
-                #     if not skip_excel:
-                #         output_file = f"{file_name}_results.xlsx" if file_name else get_output_path(f"{test}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "xlsx")
-                #         try:
-                #             ResultsExporter.export_results_to_excel(result, output_file, analysis_log)
-                #             result["excel_file"] = output_file
-                #         except Exception as ee:
-                #             print(f"Excel export could not be performed: {ee}")
-                #     
-                #     return result
-                
+            
         except Exception as e:
             import traceback
             print(f"ERROR in perform_advanced_test: {str(e)}")
@@ -2618,7 +2566,7 @@ class StatisticalTester:
                 "p_value": None,
                 "statistic": None
             }
-            
+
     @staticmethod
     def _run_any_parametric_test(
         df, dv, subject=None, between=None, within=None,
