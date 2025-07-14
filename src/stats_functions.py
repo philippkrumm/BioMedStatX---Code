@@ -1662,15 +1662,11 @@ class StatisticalTester:
                     results["posthoc_test"] = posthoc_results.get("posthoc_test")
                     results["pairwise_comparisons"] = posthoc_results.get("pairwise_comparisons", [])
             elif test_recommendation == "non_parametric" and results.get("p_value") is not None and results["p_value"] < alpha:
-                # Default to Dunn test for non-parametric post-hoc tests
-                posthoc_choice = "dunn"
-                analysis_log = results.get("analysis_log", [])
-                analysis_log += "\nAutomatically selected Dunn test as post-hoc for non-parametric test.\n"
-                results["analysis_log"] = analysis_log
-                
+                # Let the perform_refactored_posthoc_testing function handle the dialog selection
+                print("DEBUG: Significant non-parametric test, calling perform_refactored_posthoc_testing without preset posthoc_choice")
                 posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
                     valid_groups, samples_to_use, test_recommendation,
-                    alpha=0.05, posthoc_choice=posthoc_choice
+                    alpha=alpha, posthoc_choice=None  # Let the function show the dialog
                 )
                 
                 if posthoc_results:
@@ -3950,9 +3946,21 @@ class StatisticalTester:
                 posthoc_choice = "tukey"
             else:
                 # NEU: Dialog für nichtparametrische Post-hoc-Tests
-                posthoc_choice = UIDialogManager.select_nonparametric_posthoc_dialog(
-                    parent=None, progress_text=None, column_name=None
-                )
+                print("DEBUG: About to show non-parametric post-hoc dialog")
+                try:
+                    posthoc_choice = UIDialogManager.select_nonparametric_posthoc_dialog(
+                        parent=None, progress_text=None, column_name=None
+                    )
+                    print(f"DEBUG: Non-parametric post-hoc dialog returned: {posthoc_choice}")
+                    # If dialog was cancelled or returned None, default to Dunn
+                    if posthoc_choice is None:
+                        posthoc_choice = "dunn"
+                        print("DEBUG: Non-parametric post-hoc dialog cancelled, defaulting to Dunn test")
+                except Exception as e:
+                    print(f"DEBUG: Error showing non-parametric post-hoc dialog: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    posthoc_choice = "dunn"  # Fallback to Dunn test
 
         try:
             is_parametric = test_recommendation == "parametric"
@@ -3963,82 +3971,86 @@ class StatisticalTester:
                 if test_instance:
                     return test_instance.perform_test(valid_groups, samples, alpha=alpha, parametric=is_parametric)
                 
-                if posthoc_choice == "paired_custom":
-                    # Dialog für Paarauswahl öffnen
-                    pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
-                    if not pairs:
-                        result["error"] = "No pairs selected."
-                        return result
-                    # Paired t-tests für die gewählten Paare
-                    pvals, stats_list = [], []
-                    for g1, g2 in pairs:
-                        x, y = np.array(samples[g1]), np.array(samples[g2])
-                        tstat, p = stats.ttest_rel(x, y)
-                        stats_list.append(tstat)
-                        pvals.append(p)
-                    # Holm-Sidak-Korrektur
-                    from statsmodels.stats.multitest import multipletests
-                    reject, p_adj, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
-                    # Ergebnisse sammeln
-                    for i, (g1, g2) in enumerate(pairs):
-                        ci = PostHocStatistics.calculate_ci_mean_diff(samples[g1], samples[g2], alpha=alpha, paired=True)
-                        d = PostHocStatistics.calculate_cohens_d(samples[g1], samples[g2], paired=True)
-                        PostHocAnalyzer.add_comparison(
-                            result,
-                            group1=g1,
-                            group2=g2,
-                            test="Paired t-test",
-                            p_value=p_adj[i],
-                            statistic=stats_list[i],
-                            corrected=True,
-                            correction_method="Holm-Sidak",
-                            effect_size=d,
-                            effect_size_type="cohen_d",
-                            confidence_interval=ci,
-                            alpha=alpha
-                        )
-                    result["posthoc_test"] = "Custom paired t-tests (Holm-Sidak)"
+            elif posthoc_choice == "paired_custom":
+                # Dialog für Paarauswahl öffnen
+                pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
+                if not pairs:
+                    result["error"] = "No pairs selected."
                     return result
+                # Import required modules
+                from scipy import stats
+                import numpy as np
+                # Paired t-tests für die gewählten Paare
+                pvals, stats_list = [], []
+                for g1, g2 in pairs:
+                    x, y = np.array(samples[g1]), np.array(samples[g2])
+                    tstat, p = stats.ttest_rel(x, y)
+                    stats_list.append(tstat)
+                    pvals.append(p)
+                # Holm-Sidak-Korrektur
+                from statsmodels.stats.multitest import multipletests
+                reject, p_adj, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
+                # Ergebnisse sammeln
+                for i, (g1, g2) in enumerate(pairs):
+                    ci = PostHocStatistics.calculate_ci_mean_diff(samples[g1], samples[g2], alpha=alpha, paired=True)
+                    d = PostHocStatistics.calculate_cohens_d(samples[g1], samples[g2], paired=True)
+                    PostHocAnalyzer.add_comparison(
+                        result,
+                        group1=g1,
+                        group2=g2,
+                        test="Paired t-test",
+                        p_value=p_adj[i],
+                        statistic=stats_list[i],
+                        corrected=True,
+                        correction_method="Holm-Sidak",
+                        effect_size=d,
+                        effect_size_type="cohen_d",
+                        confidence_interval=ci,
+                        alpha=alpha
+                    )
+                result["posthoc_test"] = "Custom paired t-tests (Holm-Sidak)"
+                return result
+                
+            elif posthoc_choice == "mw_custom":
                 # NEU: Paarweise Mann-Whitney-U (Šidák, benutzerdefinierte Paare)
-                if posthoc_choice == "mw_custom":
-                    pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
-                    if not pairs:
-                        result["error"] = "No pairs selected."
-                        return result
-                    from scipy.stats import mannwhitneyu
-                    import numpy as np
-                    pvals, stats_list = [], []
-                    for g1, g2 in pairs:
-                        x, y = np.array(samples[g1]), np.array(samples[g2])
-                        stat, p = mannwhitneyu(x, y, alternative='two-sided')
-                        stats_list.append(stat)
-                        pvals.append(p)
-                    k = len(pvals)
-                    sidak_ps = [1 - (1 - p)**k for p in pvals]
-                    sidak_ps = [min(p, 1.0) for p in sidak_ps]
-                    for i, (g1, g2) in enumerate(pairs):
-                        n1, n2 = len(samples[g1]), len(samples[g2])
-                        u = stats_list[i]
-                        mean_u = n1 * n2 / 2
-                        std_u = np.sqrt(n1 * n2 * (n1 + n2 + 1) / 12)
-                        z = (u - mean_u) / std_u if std_u > 0 else 0
-                        r = abs(z) / np.sqrt(n1 + n2)
-                        PostHocAnalyzer.add_comparison(
-                            result,
-                            group1=g1,
-                            group2=g2,
-                            test="Mann-Whitney-U",
-                            p_value=sidak_ps[i],
-                            statistic=stats_list[i],
-                            corrected=True,
-                            correction_method="Sidak",
-                            effect_size=r,
-                            effect_size_type="r",
-                            confidence_interval=(None, None),
-                            alpha=alpha
-                        )
-                    result["posthoc_test"] = "Custom Mann-Whitney-U tests (Sidak)"
+                pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
+                if not pairs:
+                    result["error"] = "No pairs selected."
                     return result
+                from scipy.stats import mannwhitneyu
+                import numpy as np
+                pvals, stats_list = [], []
+                for g1, g2 in pairs:
+                    x, y = np.array(samples[g1]), np.array(samples[g2])
+                    stat, p = mannwhitneyu(x, y, alternative='two-sided')
+                    stats_list.append(stat)
+                    pvals.append(p)
+                k = len(pvals)
+                sidak_ps = [1 - (1 - p)**k for p in pvals]
+                sidak_ps = [min(p, 1.0) for p in sidak_ps]
+                for i, (g1, g2) in enumerate(pairs):
+                    n1, n2 = len(samples[g1]), len(samples[g2])
+                    u = stats_list[i]
+                    mean_u = n1 * n2 / 2
+                    std_u = np.sqrt(n1 * n2 * (n1 + n2 + 1) / 12)
+                    z = (u - mean_u) / std_u if std_u > 0 else 0
+                    r = abs(z) / np.sqrt(n1 + n2)
+                    PostHocAnalyzer.add_comparison(
+                        result,
+                        group1=g1,
+                        group2=g2,
+                        test="Mann-Whitney-U",
+                        p_value=sidak_ps[i],
+                        statistic=stats_list[i],
+                        corrected=True,
+                        correction_method="Sidak",
+                        effect_size=r,
+                        effect_size_type="r",
+                        confidence_interval=(None, None),
+                        alpha=alpha
+                    )
+                result["posthoc_test"] = "Custom Mann-Whitney-U tests (Sidak)"
+                return result
 
             elif posthoc_choice == "dunnett":
                 if control_group is None or control_group not in valid_groups:
@@ -4098,9 +4110,9 @@ class UIDialogManager:
 
         # RadioButtons for post-hoc tests
         options = [
-            ("Tukey-HSD Test", "tukey"),
-            ("Dunnett Test", "dunnett"),
-            ("Paired t-tests (Holm-Sidak, custom pairs)", "paired_custom"),
+            ("Tukey-HSD Test (all pairs, family-wise error control)", "tukey"),
+            ("Dunnett Test (all groups vs. control)", "dunnett"),
+            ("Paired t-tests (custom pairs, Holm-Sidak correction)", "paired_custom"),
         ]
         radio_buttons = []
         for label, value in options:
@@ -4141,8 +4153,8 @@ class UIDialogManager:
         layout.addWidget(info)
 
         options = [
-            ("Dunn-Test (alle Paare, Holm-Sidak)", "dunn"),
-            ("Paarweise Mann-Whitney-U (Šidák, benutzerdefinierte Paare)", "mw_custom"),
+            ("Dunn Test (all pairs, Holm-Sidak correction)", "dunn"),
+            ("Mann-Whitney-U Tests (custom pairs, Sidak correction)", "mw_custom"),
         ]
         radio_buttons = []
         for label, value in options:
@@ -4311,6 +4323,70 @@ import matplotlib.patches as mpatches
 from scipy import stats
 
 class DataVisualizer:
+    @staticmethod
+    def _add_pairwise_comparisons(ax, groups, compare, pairwise_results, df=None, line_height=0.1, font_size=14):
+        """
+        Zeichnet Signifikanz-Balken (Brackets) für paarweise Vergleiche.
+        ax: matplotlib axes
+        groups: List der Gruppennamen (in Plot-Reihenfolge)
+        compare: Reihenfolge der Gruppen (meistens wie groups)
+        pairwise_results: Liste von Dicts mit 'group1', 'group2', 'p_value', ggf. 'significant'
+        df: DataFrame mit Plotdaten (optional)
+        line_height: Abstand der Balken
+        font_size: Schriftgröße für p-Werte
+        """
+        import matplotlib.pyplot as plt
+        import numpy as np
+        # Einstellungen für publication-ready Bars
+        LINEWIDTH = 2
+        FONT_SIZE = 16
+        SHORT_VERT = 0.25  # Vertikale Enden sind jetzt deutlich kürzer (als Anteil von step)
+
+        group_pos = {g: i for i, g in enumerate(compare)}
+        # Finde das aktuelle Maximum auf der y-Achse
+        if df is not None and 'Value' in df:
+            y_max = df['Value'].max()
+        else:
+            y_max = None
+            try:
+                y_max = max([p.get_height() for p in getattr(ax, 'patches', []) if hasattr(p, 'get_height')])
+            except Exception:
+                y_max = 1.0
+        if y_max is None or y_max == 0:
+            y_max = 1.0
+        # Start-Offset für die Balken
+        base_height = y_max * 1.05
+        step = y_max * line_height
+        current_height = base_height
+        for comp in pairwise_results:
+            g1 = comp.get('group1')
+            g2 = comp.get('group2')
+            p = comp.get('p_value')
+            if g1 not in group_pos or g2 not in group_pos:
+                continue
+            x1 = group_pos[g1]
+            x2 = group_pos[g2]
+            # Vertikale Enden sind jetzt deutlich kürzer
+            vert = step * SHORT_VERT
+            # Linke vertikale Linie
+            ax.plot([x1, x1], [current_height, current_height+vert], color='#222', linewidth=LINEWIDTH)
+            # Rechte vertikale Linie
+            ax.plot([x2, x2], [current_height, current_height+vert], color='#222', linewidth=LINEWIDTH)
+            # Horizontale Linie oben
+            ax.plot([x1, x2], [current_height+vert, current_height+vert], color='#222', linewidth=LINEWIDTH)
+            # p-Wert oder Sternchen
+            if p is not None:
+                if p < 0.001:
+                    text = '***'
+                elif p < 0.01:
+                    text = '**'
+                elif p < 0.05:
+                    text = '*'
+                else:
+                    text = 'n.s.'
+                # Sternchen direkt über der horizontalen Linie platzieren
+                ax.text((x1+x2)/2, current_height+vert, text, ha='center', va='bottom', fontsize=FONT_SIZE, color='#222', fontweight='bold', fontname='Arial')
+            current_height += step * 1.2
     """Advanced data visualization class with extensive customization options"""
     
     # Default colors for plots
@@ -4369,63 +4445,49 @@ class DataVisualizer:
     def plot_bar(groups, samples, 
                  # Basic plot settings
                  width=8, height=6, dpi=300,
-                 
                  # Styling and theme
                  theme='default', colors=None, hatches=None, 
                  color_palette='husl', alpha=0.8,
-                 
                  # Bar customization
                  bar_width=0.8, bar_edge_color='black', bar_edge_width=0.5,
                  capsize=0.05, error_type="sd", show_error_bars=True,
-                 
                  # Data points
                  show_points=True, point_style='jitter', max_points_per_group=None,
                  point_size=80, point_alpha=0.8, point_edge_width=0.5,
                  jitter_strength=0.3, strip_dodge=False,
-                 
                  # Statistical annotations
-                 show_significance_letters=True, show_pairwise_comparisons=True,
+                 show_significance_letters=True,
                  significance_height_offset=0.05, comparison_line_height=0.1,
                  significance_font_size=12, comparison_font_size=14,
-                 
                  # Axes and labels
                  x_label=None, y_label=None, title=None,
                  x_label_size=12, y_label_size=12, title_size=14,
                  tick_label_size=10, rotate_x_labels=0,
-                 
                  # Axis formatting
                  y_axis_format='auto', y_limits=None, x_limits=None,
                  grid_style='none', grid_alpha=0.3,
-                 
                  # Legend
                  show_legend=True, legend_position='upper right',
                  legend_bbox=(1.15, 1), legend_fontsize=9,
                  legend_title="Samples", legend_title_size=12,
-                 
                  # Advanced styling
                  spine_style='minimal', background_color='white',
                  figure_face_color='white',
-                 
                  # Seaborn styling
                  seaborn_context=None, seaborn_palette=None, use_seaborn_styling=True,
-                 
-                  # Output options
+                 # Output options
                  save_plot=True, file_formats=['png', 'svg'], 
                  file_name=None, group_order=None,
-                 
                  # Statistical data
                  compare=None, test_recommendation="parametric",
                  pairwise_results=None,
-
+                 posthoc_method=None,
                  error_style="caps",     # "caps" (Whisker-Caps), "line" (nur Strich)
-                 
                  # Advanced customization
                  custom_annotations=None, watermark=None,
                  subplot_margins=None, tight_layout=True,
-                 
                  # Legend colors
                  legend_colors=None,
-                 
                  # Optional ax parameter for direct plotting
                  ax=None):
       
@@ -4526,17 +4588,58 @@ class DataVisualizer:
             tick_label_size, rotate_x_labels
         )
         
-        # Add statistical annotations
-        if show_significance_letters:
+        # Entscheide, ob Buchstaben oder Bars angezeigt werden sollen basierend auf Post-hoc Test Typ
+        show_letters = True  # Standard: Buchstaben zeigen
+        show_bars = False
+        
+        # Prüfe zuerst, ob wir den Post-hoc Test Typ aus pairwise_results ermitteln können
+        if pairwise_results is not None and len(pairwise_results) > 0:
+            # Schaue auf den ersten Vergleich, um den Test-Typ zu bestimmen
+            first_comparison = pairwise_results[0]
+            test_name = first_comparison.get('test', '').lower()
+            
+            # Nur bei Pairwise T-Tests oder Mann-Whitney Tests Bars zeigen
+            if any(keyword in test_name for keyword in [
+                'pairwise t-test', 'pairwise t test', 'paired t-test', 'independent t-test',
+                'pairwise mann-whitney', 'pairwise mann whitney', 'mann-whitney',
+                'wilcoxon', 'pairwise wilcoxon'
+            ]):
+                show_letters = False
+                show_bars = True
+                print(f"DEBUG: Using bars for test: {test_name}")
+            else:
+                show_letters = True
+                show_bars = False
+                print(f"DEBUG: Using letters for test: {test_name}")
+        
+        # Fallback auf posthoc_method falls pairwise_results test nicht erkannt wurde
+        elif posthoc_method is not None and isinstance(posthoc_method, str):
+            method_lower = posthoc_method.lower()
+            if any(keyword in method_lower for keyword in [
+                "pairwise t-test", "pairwise t test", "pairwise mann-whitney", 
+                "pairwise mann whitney", "pairwise_mannwhitney", "pairwise_ttest"
+            ]):
+                show_letters = False
+                show_bars = True
+                print(f"DEBUG: Using bars for posthoc_method: {posthoc_method}")
+            else:
+                show_letters = True
+                show_bars = False
+                print(f"DEBUG: Using letters for posthoc_method: {posthoc_method}")
+        else:
+            # Kein Post-hoc Test: Standard Letters
+            show_letters = True
+            show_bars = False
+            print("DEBUG: No post-hoc method detected, using letters")
+        if show_letters and show_significance_letters:
             DataVisualizer._add_significance_letters(
                 ax, df, groups, samples, test_recommendation,
                 significance_height_offset, significance_font_size,
                 error_type, pairwise_results=pairwise_results
             )
-        
-        if show_pairwise_comparisons and compare and pairwise_results:
+        if show_bars and pairwise_results:
             DataVisualizer._add_pairwise_comparisons(
-                ax, groups, compare, pairwise_results, df,
+                ax, groups, compare if compare else groups, pairwise_results, df,
                 comparison_line_height, comparison_font_size
             )
         
@@ -4604,6 +4707,7 @@ class DataVisualizer:
         file_name=None, group_order=None,
         test_recommendation="parametric",
         pairwise_results=None,
+        posthoc_method=None,
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
         legend_colors=None,
@@ -4672,11 +4776,59 @@ class DataVisualizer:
             x_label_size, y_label_size, title_size,
             tick_label_size, rotate_x_labels
         )
-        if show_significance_letters:
+        # Entscheide, ob Buchstaben oder Bars angezeigt werden sollen basierend auf Post-hoc Test Typ (VIOLIN)
+        show_letters = True  # Standard: Buchstaben zeigen
+        show_bars = False
+        
+        # Prüfe zuerst, ob wir den Post-hoc Test Typ aus pairwise_results ermitteln können
+        if pairwise_results is not None and len(pairwise_results) > 0:
+            # Schaue auf den ersten Vergleich, um den Test-Typ zu bestimmen
+            first_comparison = pairwise_results[0]
+            test_name = first_comparison.get('test', '').lower()
+            
+            # Nur bei Pairwise T-Tests oder Mann-Whitney Tests Bars zeigen
+            if any(keyword in test_name for keyword in [
+                'pairwise t-test', 'pairwise t test', 'paired t-test', 'independent t-test',
+                'pairwise mann-whitney', 'pairwise mann whitney', 'mann-whitney',
+                'wilcoxon', 'pairwise wilcoxon'
+            ]):
+                show_letters = False
+                show_bars = True
+                print(f"DEBUG: Using bars for test: {test_name}")
+            else:
+                show_letters = True
+                show_bars = False
+                print(f"DEBUG: Using letters for test: {test_name}")
+        
+        # Fallback auf posthoc_method falls pairwise_results test nicht erkannt wurde
+        elif posthoc_method is not None and isinstance(posthoc_method, str):
+            method_lower = posthoc_method.lower()
+            if any(keyword in method_lower for keyword in [
+                "pairwise t-test", "pairwise t test", "pairwise mann-whitney", 
+                "pairwise mann whitney", "pairwise_mannwhitney", "pairwise_ttest"
+            ]):
+                show_letters = False
+                show_bars = True
+                print(f"DEBUG: Using bars for posthoc_method: {posthoc_method}")
+            else:
+                show_letters = True
+                show_bars = False
+                print(f"DEBUG: Using letters for posthoc_method: {posthoc_method}")
+        else:
+            # Kein Post-hoc Test: Standard Letters
+            show_letters = True
+            show_bars = False
+            print("DEBUG: No post-hoc method detected, using letters")
+        if show_letters and show_significance_letters:
             DataVisualizer._add_significance_letters(
                 ax, df, groups, samples, test_recommendation,
                 significance_height_offset, significance_font_size,
                 "sd", pairwise_results=pairwise_results
+            )
+        if show_bars and pairwise_results:
+            DataVisualizer._add_pairwise_comparisons(
+                ax, groups, groups, pairwise_results, df,
+                significance_height_offset, significance_font_size
             )
         if show_legend and show_points:
             if legend_colors is not None:
@@ -4746,6 +4898,7 @@ class DataVisualizer:
         file_name=None, group_order=None,
         test_recommendation="parametric",
         pairwise_results=None,
+        posthoc_method=None,
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
         legend_colors=None,
@@ -4833,11 +4986,59 @@ class DataVisualizer:
             x_label_size, y_label_size, title_size,
             tick_label_size, rotate_x_labels
         )
-        if show_significance_letters:
+        # Entscheide, ob Buchstaben oder Bars angezeigt werden sollen basierend auf Post-hoc Test Typ (BOX)
+        show_letters = True  # Standard: Buchstaben zeigen
+        show_bars = False
+        
+        # Prüfe zuerst, ob wir den Post-hoc Test Typ aus pairwise_results ermitteln können
+        if pairwise_results is not None and len(pairwise_results) > 0:
+            # Schaue auf den ersten Vergleich, um den Test-Typ zu bestimmen
+            first_comparison = pairwise_results[0]
+            test_name = first_comparison.get('test', '').lower()
+            
+            # Nur bei Pairwise T-Tests oder Mann-Whitney Tests Bars zeigen
+            if any(keyword in test_name for keyword in [
+                'pairwise t-test', 'pairwise t test', 'paired t-test', 'independent t-test',
+                'pairwise mann-whitney', 'pairwise mann whitney', 'mann-whitney',
+                'wilcoxon', 'pairwise wilcoxon'
+            ]):
+                show_letters = False
+                show_bars = True
+                print(f"DEBUG: Using bars for test: {test_name}")
+            else:
+                show_letters = True
+                show_bars = False
+                print(f"DEBUG: Using letters for test: {test_name}")
+        
+        # Fallback auf posthoc_method falls pairwise_results test nicht erkannt wurde
+        elif posthoc_method is not None and isinstance(posthoc_method, str):
+            method_lower = posthoc_method.lower()
+            if any(keyword in method_lower for keyword in [
+                "pairwise t-test", "pairwise t test", "pairwise mann-whitney", 
+                "pairwise mann whitney", "pairwise_mannwhitney", "pairwise_ttest"
+            ]):
+                show_letters = False
+                show_bars = True
+                print(f"DEBUG: Using bars for posthoc_method: {posthoc_method}")
+            else:
+                show_letters = True
+                show_bars = False
+                print(f"DEBUG: Using letters for posthoc_method: {posthoc_method}")
+        else:
+            # Kein Post-hoc Test: Standard Letters
+            show_letters = True
+            show_bars = False
+            print("DEBUG: No post-hoc method detected, using letters")
+        if show_letters and show_significance_letters:
             DataVisualizer._add_significance_letters(
                 ax, df, groups, samples, test_recommendation,
                 significance_height_offset, significance_font_size,
                 "sd", pairwise_results=pairwise_results
+            )
+        if show_bars and pairwise_results:
+            DataVisualizer._add_pairwise_comparisons(
+                ax, groups, groups, pairwise_results, df,
+                significance_height_offset, significance_font_size
             )
         if show_legend and show_points:
             if legend_colors is not None:
@@ -4905,6 +5106,7 @@ class DataVisualizer:
         file_name=None, group_order=None,
         test_recommendation="parametric",
         pairwise_results=None,
+        posthoc_method=None,
         custom_annotations=None, watermark=None,
         subplot_margins=None, tight_layout=True,
         # Appearance options
@@ -5081,11 +5283,26 @@ class DataVisualizer:
         if y_limits:  # y_limits would control group range (rarely used)
             ax.set_ylim(y_limits)
             
-        # Add significance letters for raincloud if requested
-        if show_significance_letters:
+        # Entscheide, ob Buchstaben oder Bars angezeigt werden sollen
+        show_letters = True
+        show_bars = False
+        if posthoc_method is not None and isinstance(posthoc_method, str):
+            method_lower = posthoc_method.lower()
+            if method_lower in ["pairwise t-test", "pairwise t test", "pairwise mann-whitney", "pairwise mann whitney", "pairwise_mannwhitney", "pairwise_ttest"]:
+                show_letters = False
+                show_bars = True
+        elif pairwise_results is not None and len(pairwise_results) > 0:
+            show_letters = False
+            show_bars = True
+        if show_letters and show_significance_letters:
             DataVisualizer._add_significance_letters_raincloud(
                 ax, groups, samples, test_recommendation,
                 significance_height_offset, significance_font_size, positions, pairwise_results=pairwise_results
+            )
+        if show_bars and pairwise_results:
+            DataVisualizer._add_pairwise_comparisons(
+                ax, groups, groups, pairwise_results, None,
+                significance_height_offset, significance_font_size
             )
             
         # Add legend with correct colors
@@ -5622,27 +5839,31 @@ class DataVisualizer:
             print(f"DEBUG: _add_significance_letters called with {len(groups)} groups")
             print(f"DEBUG: pairwise_results = {pairwise_results}")
 
-            if pairwise_results:
-                means_dict = {g: np.mean(samples[g]) for g in groups}
-
-                # Erkenne volle Paarvergleiche vs. Dunnett-T3
-                n = len(groups)
-                is_full_pairwise = len(pairwise_results) == n*(n-1)//2
-                is_dunnett_t3 = any(
-                    str(c.get('test','')).lower().startswith("dunnett's t3")
-                    for c in pairwise_results
-                )
-                sweep_flag = not (is_full_pairwise or is_dunnett_t3)
-
-                letters = DataVisualizer.get_significance_letters_from_posthoc(
-                    groups,
-                    pairwise_results,
-                    alpha=0.05,
-                    sweep=sweep_flag,
-                    sort_by=means_dict
-                )
+            # Always use post-hoc results if available and non-empty
+            if pairwise_results is not None:
+                if len(pairwise_results) > 0:
+                    means_dict = {g: np.mean(samples[g]) for g in groups}
+                    n = len(groups)
+                    is_full_pairwise = len(pairwise_results) == n*(n-1)//2
+                    is_dunnett_t3 = any(
+                        str(c.get('test','')).lower().startswith("dunnett's t3")
+                        for c in pairwise_results
+                    )
+                    sweep_flag = not (is_full_pairwise or is_dunnett_t3)
+                    letters = DataVisualizer.get_significance_letters_from_posthoc(
+                        groups,
+                        pairwise_results,
+                        alpha=0.05,
+                        sweep=sweep_flag,
+                        sort_by=means_dict
+                    )
+                else:
+                    print("WARNING: pairwise_results provided but empty; falling back to simple method.")
+                    letters = DataVisualizer.get_significance_letters(
+                        samples, groups, test_recommendation=test_recommendation
+                    )
             else:
-                print("DEBUG: no post-hoc results, using simple method for significance letters")
+                print("WARNING: pairwise_results is None; falling back to simple method. If post-hoc results are expected, check upstream logic.")
                 letters = DataVisualizer.get_significance_letters(
                     samples, groups, test_recommendation=test_recommendation
                 )
@@ -5695,16 +5916,21 @@ class DataVisualizer:
             print(f"DEBUG: _add_significance_letters_raincloud called with {len(groups)} groups")
             print(f"DEBUG: pairwise_results = {pairwise_results}")
             
-            # Use post-hoc results if available, otherwise fall back to simple method
-            if pairwise_results:
-                print("DEBUG: Using post-hoc results for raincloud significance letters")
-                # Calculate means for sorting
-                means_dict = {group: np.mean(samples[group]) for group in groups}
-                letters = DataVisualizer.get_significance_letters_from_posthoc(
-                    groups, pairwise_results, alpha=0.05, sweep=True, sort_by=means_dict
-                )
+            # Always use post-hoc results if available and non-empty
+            if pairwise_results is not None:
+                if len(pairwise_results) > 0:
+                    print("DEBUG: Using post-hoc results for raincloud significance letters")
+                    means_dict = {group: np.mean(samples[group]) for group in groups}
+                    letters = DataVisualizer.get_significance_letters_from_posthoc(
+                        groups, pairwise_results, alpha=0.05, sweep=True, sort_by=means_dict
+                    )
+                else:
+                    print("WARNING: pairwise_results provided but empty; falling back to simple method.")
+                    letters = DataVisualizer.get_significance_letters(
+                        samples, groups, test_recommendation=test_recommendation
+                    )
             else:
-                print("DEBUG: Using simple method for raincloud significance letters")
+                print("WARNING: pairwise_results is None; falling back to simple method. If post-hoc results are expected, check upstream logic.")
                 letters = DataVisualizer.get_significance_letters(
                     samples, groups, test_recommendation=test_recommendation
                 )
@@ -6062,6 +6288,7 @@ class DataVisualizer:
             'show_points': config.get('show_points', True),
             'point_style': config.get('point_style', 'jitter'),
             'point_size': config.get('point_size', 80),
+            'jitter_strength': config.get('jitter_strength', 0.3),  # Jitter Parameter hinzugefügt
             'show_significance_letters': config.get('show_significance_letters', True),
             'significance_height_offset': config.get('significance_height_offset', 0.05),
             'significance_font_size': config.get('significance_font_size', 12),
@@ -6146,17 +6373,28 @@ class DataVisualizer:
         import matplotlib.pyplot as plt
         plt.rcParams['font.family'] = font_family
         
+        # Title - only set fontsize if explicitly provided in config
         if config.get('show_title', True) and config.get('title'):
-            ax.set_title(config.get('title', ''), fontsize=config.get('fontsize_title', 14))
+            title_kwargs = {}
+            if 'fontsize_title' in config:
+                title_kwargs['fontsize'] = config['fontsize_title']
+            ax.set_title(config.get('title', ''), **title_kwargs)
         
-        # Axis labels font sizes
+        # Axis labels - only set fontsize if explicitly provided in config
         if config.get('x_label'):
-            ax.set_xlabel(config.get('x_label', ''), fontsize=config.get('fontsize_axis', 12))
+            xlabel_kwargs = {}
+            if 'fontsize_axis' in config:
+                xlabel_kwargs['fontsize'] = config['fontsize_axis']
+            ax.set_xlabel(config.get('x_label', ''), **xlabel_kwargs)
         if config.get('y_label'):
-            ax.set_ylabel(config.get('y_label', ''), fontsize=config.get('fontsize_axis', 12))
+            ylabel_kwargs = {}
+            if 'fontsize_axis' in config:
+                ylabel_kwargs['fontsize'] = config['fontsize_axis']
+            ax.set_ylabel(config.get('y_label', ''), **ylabel_kwargs)
         
-        # Tick label font sizes
-        ax.tick_params(axis='both', which='major', labelsize=config.get('fontsize_ticks', 10))
+        # Tick label font sizes - only set if explicitly provided in config
+        if 'fontsize_ticks' in config:
+            ax.tick_params(axis='both', which='major', labelsize=config['fontsize_ticks'])
         
         # Axis thickness
         axis_thickness = config.get('axis_thickness', 0.7)
@@ -6746,6 +6984,48 @@ class ResultsExporter:
 
         # Update row position to be AFTER the merged navigation text
         row += 8  # This ensures we're beyond the previous merge range
+
+        # Post-hoc tests information
+        posthoc_test = results.get("posthoc_test", None)
+        if posthoc_test:
+            row += 1
+            ws.merge_range(f'A{row}:F{row}', "POST-HOC TESTS PERFORMED", fmt["section_header"])
+            row += 1
+            
+            # Show the specific post-hoc test that was performed
+            ws.write(row, 0, "Test performed:", fmt["key"])
+            ws.write(row, 1, posthoc_test, fmt["cell"])
+            row += 1
+            
+            # Add explanations for different post-hoc tests
+            posthoc_explanations = {
+                "Tukey HSD": "Tukey's Honestly Significant Difference test compares all possible pairs of groups while controlling the family-wise error rate. It's the most commonly used post-hoc test for ANOVA.",
+                "Dunnett": "Dunnett's test compares all treatment groups against a single control group. It's more powerful than Tukey when you have a clear control condition.",
+                "Custom paired t-tests (Holm-Sidak)": "User-selected group pairs are compared using paired t-tests with Holm-Sidak correction for multiple comparisons. This allows for focused comparisons of specific group pairs.",
+                "Dunn": "Dunn's test is a non-parametric post-hoc test that compares all possible pairs after a significant Kruskal-Wallis test, using rank-based statistics with Holm-Sidak correction.",
+                "Custom Mann-Whitney-U tests (Sidak)": "User-selected group pairs are compared using Mann-Whitney U tests with Sidak correction for multiple comparisons. This non-parametric approach is used when normality assumptions are violated.",
+                "Dependent Post-hoc": "Specialized post-hoc tests for repeated measures designs, using either paired t-tests or Wilcoxon signed-rank tests depending on normality assumptions."
+            }
+            
+            # Find the best matching explanation
+            explanation = "See the 'Pairwise Comparisons' sheet for detailed results."
+            for test_name, test_explanation in posthoc_explanations.items():
+                if test_name.lower() in posthoc_test.lower():
+                    explanation = test_explanation
+                    break
+            
+            ws.merge_range(f'A{row}:F{row}', explanation, fmt["explanation"])
+            ws.set_row(row, ResultsExporter.get_text_height(explanation, 28*6))
+            row += 2
+            
+            # Add general note about post-hoc tests
+            general_note = (
+                "Note: Post-hoc tests are only performed when the main test shows significant differences. "
+                "They help identify which specific groups differ from each other while controlling for multiple comparisons."
+            )
+            ws.merge_range(f'A{row}:F{row}', general_note, fmt["explanation"])
+            ws.set_row(row, ResultsExporter.get_text_height(general_note, 28*6))
+            row += 1
 
         anova_table = results.get("anova_table")
         if anova_table is not None:
@@ -7407,6 +7687,46 @@ class ResultsExporter:
             )
             ws.merge_range(f'A{row}:F{row}', perm_explanation, fmt["explanation"])
             ws.set_row(row, ResultsExporter.get_text_height(perm_explanation, 22*6))
+            row += 2
+
+        # Post-hoc tests information
+        ws.merge_range(f'A{row}:F{row}', "AVAILABLE POST-HOC TESTS", fmt["section_header"])
+        row += 1
+        
+        posthoc_info = (
+            "This analysis software provides various post-hoc tests for different situations:\n\n"
+            "PARAMETRIC POST-HOC TESTS (when normality assumptions are met):\n"
+            "• Tukey HSD: Compares all possible pairs while controlling family-wise error rate\n"
+            "• Dunnett Test: Compares all groups against a single control group\n"
+            "• Custom Paired t-tests: User-selected pairs with Holm-Sidak correction\n\n"
+            "NON-PARAMETRIC POST-HOC TESTS (when normality assumptions are violated):\n"
+            "• Dunn Test: Rank-based comparisons of all pairs with Holm-Sidak correction\n"
+            "• Custom Mann-Whitney-U Tests: User-selected pairs with Sidak correction\n\n"
+            "REPEATED MEASURES POST-HOC TESTS (for dependent samples):\n"
+            "• Dependent Post-hoc: Paired t-tests or Wilcoxon tests based on normality\n\n"
+            "The appropriate test is automatically selected based on your data characteristics, "
+            "or you can choose specific comparisons through the user interface."
+        )
+        ws.merge_range(f'A{row}:F{row}', posthoc_info, fmt["explanation"])
+        ws.set_row(row, ResultsExporter.get_text_height(posthoc_info, 22*6))
+        row += 2
+        
+        # Show which specific post-hoc test was performed, if any
+        posthoc_test = results.get("posthoc_test", None)
+        if posthoc_test:
+            ws.merge_range(f'A{row}:F{row}', f"POST-HOC TEST PERFORMED: {posthoc_test}", fmt["section_header"])
+            row += 1
+            
+            # Get number of pairwise comparisons
+            pairwise_count = len(results.get("pairwise_comparisons", []))
+            comparison_info = f"Number of pairwise comparisons: {pairwise_count}"
+            if pairwise_count > 0:
+                comparison_info += " (see 'Pairwise Comparisons' sheet for details)"
+            else:
+                comparison_info += " (no comparisons performed - main test not significant or error occurred)"
+            
+            ws.merge_range(f'A{row}:F{row}', comparison_info, fmt["explanation"])
+            ws.set_row(row, ResultsExporter.get_text_height(comparison_info, 22*6))
     
 
     @staticmethod
@@ -7575,7 +7895,14 @@ class ResultsExporter:
             "• Significant: 'Yes' if p < Alpha (usually 0.05)\n"
             "• Effect size: Magnitude of the difference (e.g., Cohen's d, Hedges' g)\n"
             "• 95% CI: Confidence interval for the difference between groups (if calculated)\n"
-            "Interpretation of significance (typical): * p<0.05; ** p<0.01; *** p<0.001"
+            "Interpretation of significance (typical): * p<0.05; ** p<0.01; *** p<0.001\n\n"
+            "Available Post-hoc Tests:\n"
+            "• Tukey HSD: Compares all pairs, controls family-wise error rate\n"
+            "• Dunnett Test: Compares all groups to a control group\n"
+            "• Custom Paired t-tests (Holm-Sidak): User-selected pairs with Holm-Sidak correction\n"
+            "• Dunn Test: Non-parametric all pairwise comparisons with Holm-Sidak correction\n"
+            "• Custom Mann-Whitney-U (Sidak): User-selected pairs with Sidak correction\n"
+            "• Dependent Post-hoc: For repeated measures designs (paired t-tests or Wilcoxon)"
         )
         ws.merge_range('A2:H2', pw_explanation, fmt["explanation"])  # Increased merge range
         ws.set_row(1, ResultsExporter.get_text_height(pw_explanation, 22*8))  # Adjusted width factor
@@ -8675,13 +9002,12 @@ class AnalysisManager:
 
                 # Check if post-hoc tests have already been performed
                 if not test_results.get('pairwise_comparisons'):
-                    # Automatic selection for non-parametric tests
+                    # Let the perform_refactored_posthoc_testing function handle dialog selection for all tests
                     if 'kruskal' in test_name or 'friedman' in test_name or test_recommendation == 'non_parametric':
-                        posthoc_choice = "dunn"
-                        analysis_log += "\nAutomatically selected Dunn test as post-hoc for non-parametric test.\n"
+                        print("DEBUG: Significant non-parametric test (section 2), calling perform_refactored_posthoc_testing without preset posthoc_choice")
                         posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
                             valid_groups, transformed_samples, test_recommendation,
-                            alpha=0.05, posthoc_choice=posthoc_choice
+                            alpha=0.05, posthoc_choice=None  # Let the function show the dialog
                         )
                     else:
                         # Show dialog for parametric tests

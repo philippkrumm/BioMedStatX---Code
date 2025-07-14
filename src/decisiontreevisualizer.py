@@ -232,7 +232,7 @@ class DecisionTreeVisualizer:
                 'O1_PH': {"label": "Post-hoc Tests", "pos": (-3, -3)},
                 'P1_PH_TK': {"label": "Tukey HSD", "pos": (-5, -4)},
                 'P1_PH_DN': {"label": "Dunnett Test", "pos": (-3, -4)},
-                'P1_PH_SD': {"label": "Pairwise t-test\n(Holm-Sidak)", "pos": (-6.5, -4)},
+                'P1_PH_SD': {"label": "Pairwise t-test\n(Holm-Sidak-corrected)", "pos": (-6.5, -4)},
 
                 # Non-parametric branch
                 'G2': {"label": "Non-parametric Test", "pos": (5, 5)},
@@ -261,7 +261,7 @@ class DecisionTreeVisualizer:
                 # Post-hoc nodes for non-parametric branch
                 'L2_PH': {"label": "Post-hoc Tests", "pos": (7.75, -3)},
                 'M2_PH_DU': {"label": "Dunn Test", "pos": (6.25, -4)},
-                'M2_PH_MWU': {"label": "Pairwise Mann-Whitney-U\n(Sidak, custom pairs)", "pos": (9.25, -4)},
+                'M2_PH_MWU': {"label": "Pairwise Mann-Whitney-U\n(Sidak-corrected)", "pos": (9.25, -4)},
             }
 
             # Add nodes to graph

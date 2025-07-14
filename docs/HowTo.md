@@ -1,188 +1,187 @@
-# Statistical Analyzer User Guide (HowTo.md)
 
-This guide ex* **Advanced Analyses**: Two‑Way ANOResults appearImage is saved as a temEach sheet is clearPlots can beResults export to a specified Excel file via `OutlierDetectionDialog` and `OutlierDetector` in **stats_functions.py**.saved automatically as PDF/PNG alongside Excel.y named for easy navigation.orary PNG and highlighted path shows actual branches.in separate sheets and on plots.A, Repeated Measures ANOVA, Mixed ANOVA via **AdvancedTestDialog** and:
 
-  ```python
-  StatisticalTester.perform_advanced_test(...)
-  ```
+# BioMedStatX User Guide
 
-All test logic, routing, and parameter handling is implemented in `StatisticalTester` within **stats_functions.py**.how to use the standalone `.exe` for Statistical Analyzer—from launching the app to importing data, running analyses, and exporting results—without needing any Python commands.
+This guide explains how to use the BioMedStatX application: from launching the program, importing data, running statistical analyses, customizing plots, and exporting results. All information is focused on the user interface, available statistics, and practical workflow—no programming or code knowledge required.
 
 ---
+
 
 ## 1. Launching the Application
 
-- Locate the `StatisticalAnalyzer.exe` file.
-- Double‑click to open. A Qt GUI window appears with the menus: **File**, **Analysis**, and **Help**.
+- Locate the `BioMedStatX.exe` file in your installation directory.
+- Double-click to start. A Qt-based GUI window will open with the menus: **File**, **Analysis**, and **Help**.
 
 ---
+
+
 
 ## 2. Importing Data
 
-1. In the **File** menu, choose **Browse** to select an Excel (`.xlsx`/`.xls`) or CSV (`.csv`) file.
-2. Upon selection, the file’s sheets (for Excel) populate the **Worksheet** dropdown; CSV skips this step.
-3. Click **Load** (or close the dialog) to read data.
-4. Internally, the app uses:
-   ```python
-   DataImporter.import_data(
-       file_path,            # Selected path
-       sheet_name=...,       # Sheet index or name
-       group_col=...,        # Column name for grouping
-       value_cols=...,       # List of numeric measurement columns
-       combine_columns=...   # Boolean to merge multiple columns
-   ) → (samples: dict, df: DataFrame)
-   ```
+1. In the **File** menu, select **Browse** to choose your data file (Excel `.xlsx`/`.xls` or CSV `.csv`).
+2. For Excel files, select the worksheet you want to analyze. For CSV, this step is skipped.
+3. Click **Load** to import your data into the application.
+
+
 
 ## 3. Selecting Groups & Measurement Columns
 
-* **GroupSelectionDialog**: Pick which factor/column defines your groups.
-* **ColumnSelectionDialog**: Choose one or more numeric columns for analysis. If multiple and **combine\_columns** is enabled, values across columns are merged per group.
+- Choose which column defines your groups (e.g., treatment, condition) in the group selection dialog.
+- Select one or more numeric columns for analysis. If you select multiple columns and enable "combine columns", values are merged per group.
 
 ---
 
-## 4. Assumption Checking & Transformations
 
-* Before any statistical test, the app runs:
+arcsin_sqrt_transform(df, dv)
 
-  * **Shapiro–Wilk test** for normality
-  * **Levene’s test** for homogeneity of variances
-* If either assumption fails, the **TransformationDialog** appears, offering:
+## 4. Assumption Checks & Data Transformations
 
-  * Log₁₀ transform (default)
-  * Box‑Cox transform
-  * Arcsine‑sqrt transform
-* Under the hood, these map to:
+Before any statistical test, the app automatically checks for normal distribution and equal variances. If your data does not meet these assumptions, you will be prompted to apply a transformation (log, Box–Cox, or arcsine–sqrt) to improve suitability for analysis. You can skip or accept the suggested transformation.
 
-  ```python
-  log_transform(df, dv)
-  boxcox_transform(df, dv)
-  arcsin_sqrt_transform(df, dv)
-  ```
 
-## 5. Statistical Tests
 
-* **Two-Group, Independent**: Student’s t‑test, Welch’s t‑test, Mann–Whitney U
-* **Two-Group, Paired**: Paired t‑test, Wilcoxon signed‑rank
-* **Multi-Group, Independent**: One‑way ANOVA, Welch ANOVA, Kruskal–Wallis
-* **Advanced Analyses**: Two‑Way ANOVA, Repeated Measures ANOVA, Mixed ANOVA via **AdvancedTestDialog** and:
+## 5. Statistical Analyses
 
-  ```python
-  StatisticalTester.perform_advanced_test(...)
-  ```
+BioMedStatX automatically selects the appropriate statistical test based on your data and design. Supported analyses include:
 
-All test logic, routing, and parameter handling is implemented in `StatisticalTester` within **stats\_functions.py**. fileciteturn1file0
+- Two-group comparisons (independent or paired)
+- Multi-group comparisons (one-way, two-way, repeated measures, mixed designs)
+- Parametric and non-parametric alternatives (e.g., t-tests, ANOVA, Mann–Whitney, Kruskal–Wallis)
+
+You do not need to choose the test yourself—the software guides you and explains the result in plain language.
 
 ---
 
-## 5.1. Non-parametric ANOVA Alternatives
 
-For complex designs where parametric assumptions are violated, the software includes specialized non-parametric alternatives:
 
-* **Non-parametric Two-Way ANOVA** - Using rank transformation + permutation tests
-* **Non-parametric Repeated Measures ANOVA** - For within-subjects designs
-* **Non-parametric Mixed ANOVA** - For mixed (between + within) designs
+### 5.1. Non-parametric Alternatives
 
-These are implemented in `NonParametricFactory` and provide robust alternatives when traditional non-parametric tests (like Kruskal-Wallis) are insufficient for complex designs.
+If your data does not meet the requirements for standard ANOVA, the app will automatically use robust non-parametric alternatives for complex designs (e.g., non-parametric two-way or repeated measures ANOVA).
 
 ---
+
+
 
 ## 6. Post‑Hoc Comparisons
 
-When overall tests are significant, the software automatically performs appropriate post-hoc comparisons:
-
-* Tukey’s HSD
-* Dunn’s or Bonferroni‑corrected comparisons
-* Dunnett’s test (control vs others)
-
-Results appear in separate sheets and on plots. fileciteturn3file0
+If a group comparison is significant, the app automatically performs post-hoc tests (e.g., Tukey, Dunn, Bonferroni, or Dunnett) to show which groups differ. Results are clearly displayed in the results table and as annotations on the plots.
 
 ---
+
+
 
 ## 7. Decision Tree Visualization
 
-Visualize the decision process via **Analysis → Show Decision Tree**, which calls:
-
-```python
-DecisionTreeVisualizer.visualize(results, output_path)
-# or for Excel embedding:
-DecisionTreeVisualizer.generate_and_save_for_excel(results)
-```
-
-Image is saved as a temporary PNG and highlighted path shows actual branches. fileciteturn2file4
+You can visualize the statistical decision process via **Analysis → Show Decision Tree**. The app displays a graphical flowchart showing which tests were chosen and why, with the actual path highlighted. The image can be saved for documentation.
 
 ---
 
-## 8. Exporting Results to Excel
 
-After analysis, choose **File → Export Results** (or it runs automatically):
 
-```python
-ResultsExporter.export_results_to_excel(results, output_file, analysis_log)
-```
+## 8. Exporting Results
 
-This creates a multi-sheet `.xlsx` with:
-
-* **Summary** of tests and p‑values
-* **Assumptions** (normality, variance)
-* **Main Results** (statistics, effect sizes)
-* **Descriptive Statistics** per group
-* **Decision Tree** image
-* **Raw Data** snapshots
-* **Pairwise Comparisons**
-* **Analysis Log** (chronological steps)
-
-Each sheet is clearly named for easy navigation. fileciteturn1file0
+After your analysis, you can export all results to Excel with a single click (**File → Export Results**). The exported file contains:
+- A summary of all tests and p-values
+- Assumption checks
+- Main results and effect sizes
+- Descriptive statistics for each group
+- The decision tree image
+- Raw data snapshots
+- Pairwise comparisons
+- A chronological analysis log
+Each sheet is clearly named for easy navigation.
 
 ---
+
+
 
 ## 9. Plotting & Customization
 
-Plots are generated with Matplotlib (via Seaborn palettes) and include:
+BioMedStatX creates publication-ready plots for your results. Supported plot types include:
+- Bar charts (with error bars)
+- Violin plots
+- Boxplots
+- Overlayed individual data points (with lines for paired data)
 
-* Bar charts with SD/SEM error bars
-* Overlayed individual data points (and connection lines for paired data)
-* Violin or boxplots when selected
+### Plot Customization
 
-Use **PlotConfigDialog** to adjust:
+Use the **Plot Settings** dialog to adjust:
+- Plot title and axis labels
+- Figure size (width, height, DPI)
+- Colors and hatches for each group
+- Error bar style (SD/SEM, caps/lines)
+- Significance annotations (letters, brackets, custom comparisons)
+- Legend position, font size, and title
+- Background and grid style
+- Data point style (jitter, strip, swarm)
+- Overlay options (paired lines, custom annotations)
 
-* Titles & axis labels
-* Figure dimensions
-* Colors & hatches per group
-* Significance annotations or custom comparisons
+All changes are shown in a live preview before saving. Most options are also available for export (PDF/PNG) and are reflected in the exported plots.
 
-Plots can be saved automatically as PDF/PNG alongside Excel. fileciteturn1file5
+**Note:** Some advanced customizations (e.g., custom color maps or font families) may require the advanced options dialog.
 
 ---
+
+
 
 ## 10. Outlier Detection (Optional)
 
-Under **Analysis → Detect Outliers**, configure and run:
+Under **Analysis → Detect Outliers**, you can identify and flag outliers in your data using:
+- Modified Z-Score Test
+- Grubbs’ Test
+- Single-pass or iterative mode
 
-* Modified Z‑Score Test
-* Grubbs’ Test
-* Single‑pass or iterative mode
-
-Results export to a specified Excel file via `OutlierDetectionDialog` and `OutlierDetector` in **stats\_functions.py**. fileciteturn3file8
+Results are exported to Excel for further review.
 
 ---
 
-## 11. Quick Workflow
 
-1. **Launch** `.exe`.
-2. **Browse** & **Load** your data file.
+
+## 11. Window Resizing, Scrollability, and Scaling
+
+BioMedStatX is designed to work on all common screen sizes and resolutions:
+- All windows and dialogs can be resized by dragging the edges.
+- Dialogs are scrollable if content does not fit on the screen.
+- The layout adapts to high-DPI screens and multi-monitor setups.
+- Minimum and maximum window sizes ensure usability on both small and large screens.
+
+**Tips:**
+- If you cannot see all content, maximize the window or use the scrollbars.
+- On very high-resolution screens, use your operating system’s scaling settings or adjust the app’s DPI settings (see Help menu).
+- For best results, keep your graphics drivers and system libraries up to date.
+
+If you encounter display issues, please report your OS, screen resolution, and a screenshot to the developer.
+
+---
+
+
+## 12. Quick Workflow
+
+1. **Launch** the application.
+2. **Browse** and **Load** your data file.
 3. **Select** worksheet (if Excel), group column, and measurement columns.
 4. **Choose** analysis type (basic or advanced).
 5. **Check** assumptions; apply transforms if needed.
 6. **Review** plots and decision tree.
-7. **Export** results; locate `<base>_results.xlsx`, `.pdf`, and `.png` in your working folder.
+7. **Export** results; locate your results files in your working folder.
+
+---
+
+
+---
+
 
 ---
 
 ### Tips & Best Practices
 
-* Ensure your group column has consistent labels.
-* Use Box‑Cox or log transforms when skew is severe.
-* For paired designs, confirm equal sample sizes per group.
-* Consult the **Analysis Log** sheet for troubleshooting and detailed steps.
+- Ensure your group column has consistent, non-empty labels.
+- Use data transformations for highly skewed data if prompted.
+- For paired designs, confirm equal sample sizes per group.
+- Use the **Analysis Log** sheet in the exported Excel file for troubleshooting and detailed steps.
+- Preview your plot settings before exporting for best results.
+- If you encounter issues with window scaling or content visibility, maximize the window or adjust your OS scaling settings.
+
+---
 
 Happy analyzing!

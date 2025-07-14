@@ -253,15 +253,20 @@ class PairwiseComparisonDialog(QDialog):
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         self.setWindowTitle("Pairwise Comparisons")
         self.resize(400, 300)
-        
-        layout = QVBoxLayout(self)
-        layout.setObjectName("lyoPairwiseComparison")
-        
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setObjectName("lyoPairwiseComparison")
+
+        # --- Scrollable content widget ---
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+
         # Explanation
         label = QLabel("Select two groups between which a significance line should be displayed:")
         label.setObjectName("lblComparisonHelp")
-        layout.addWidget(label)
-        
+        content_layout.addWidget(label)
+
         # Selection for group 1
         group1_layout = QHBoxLayout()
         group1_layout.setObjectName("lyoGroup1Selection")
@@ -272,8 +277,8 @@ class PairwiseComparisonDialog(QDialog):
         self.group1_combo.setObjectName("cboGroup1")
         self.group1_combo.addItems([str(g) for g in available_groups])
         group1_layout.addWidget(self.group1_combo)
-        layout.addLayout(group1_layout)
-        
+        content_layout.addLayout(group1_layout)
+
         # Selection for group 2
         group2_layout = QHBoxLayout()
         group2_layout.setObjectName("lyoGroup2Selection")
@@ -286,22 +291,22 @@ class PairwiseComparisonDialog(QDialog):
         if len(available_groups) > 1:
             self.group2_combo.setCurrentIndex(1)
         group2_layout.addWidget(self.group2_combo)
-        layout.addLayout(group2_layout)
-        
+        content_layout.addLayout(group2_layout)
+
         # Hint text for explanation
         hint_label = QLabel("Note: Significance is automatically taken from the post-hoc tests.")
         hint_label.setObjectName("lblSignificanceHint")
         hint_label.setStyleSheet("color: #666; font-style: italic;")
-        layout.addWidget(hint_label)
-        
+        content_layout.addWidget(hint_label)
+
         # Dependent samples with better description
         dependent_layout = QHBoxLayout()
         dependent_layout.setObjectName("lyoDependentOption")
-        
+
         self.dependent_check = QCheckBox("Dependent samples (paired test)")
         self.dependent_check.setObjectName("chkDependentSamples")
         dependent_layout.addWidget(self.dependent_check)
-        
+
         # Info button
         dependent_info = QPushButton("?")
         dependent_info.setObjectName("btnPairwiseDependentInfo")
@@ -309,15 +314,21 @@ class PairwiseComparisonDialog(QDialog):
         dependent_info.clicked.connect(self.show_dependent_info)
         dependent_layout.addWidget(dependent_info)
         dependent_layout.addStretch()
-        
-        layout.addLayout(dependent_layout)
-        
-        # Buttons
+
+        content_layout.addLayout(dependent_layout)
+
+        # --- QScrollArea setup ---
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(content_widget)
+        main_layout.addWidget(scroll_area)
+
+        # --- Dialog buttons (not inside scroll area) ---
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.setObjectName("btnDialogButtons")
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
+        main_layout.addWidget(button_box)
     
     def get_comparison(self):
         g1 = self.group1_combo.currentText()

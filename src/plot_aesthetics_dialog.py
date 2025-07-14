@@ -109,6 +109,12 @@ class TypographyTab(QWidget):
     def __init__(self, config=None):
         super().__init__()
         self.config = config or {}
+        # Track if user has explicitly changed font sizes
+        self.font_sizes_modified = {
+            'title': False,
+            'axis': False,
+            'ticks': False
+        }
         self.init_ui()
         
     def init_ui(self):
@@ -143,7 +149,7 @@ class TypographyTab(QWidget):
         self.title_size_spin = QSpinBox()
         self.title_size_spin.setRange(8, 48)
         self.title_size_spin.setValue(self.config.get('fontsize_title', 14))
-        self.title_size_spin.valueChanged.connect(self.settingsChanged)
+        self.title_size_spin.valueChanged.connect(self.on_title_size_changed)
         font_layout.addWidget(self.title_size_spin, 0, 1)
         
         # Axis Label Font Size
@@ -151,7 +157,7 @@ class TypographyTab(QWidget):
         self.axis_size_spin = QSpinBox()
         self.axis_size_spin.setRange(8, 24)
         self.axis_size_spin.setValue(self.config.get('fontsize_axis', 12))
-        self.axis_size_spin.valueChanged.connect(self.settingsChanged)
+        self.axis_size_spin.valueChanged.connect(self.on_axis_size_changed)
         font_layout.addWidget(self.axis_size_spin, 1, 1)
         
         # Tick Label Font Size
@@ -159,7 +165,7 @@ class TypographyTab(QWidget):
         self.ticks_size_spin = QSpinBox()
         self.ticks_size_spin.setRange(6, 20)
         self.ticks_size_spin.setValue(self.config.get('fontsize_ticks', 10))
-        self.ticks_size_spin.valueChanged.connect(self.settingsChanged)
+        self.ticks_size_spin.valueChanged.connect(self.on_ticks_size_changed)
         font_layout.addWidget(self.ticks_size_spin, 2, 1)
         
         layout.addWidget(font_group)
@@ -194,17 +200,39 @@ class TypographyTab(QWidget):
         # Force immediate update für Schriftarten
         self.settingsChanged.emit()
     
+    def on_title_size_changed(self):
+        """Handler for title size changes"""
+        self.font_sizes_modified['title'] = True
+        self.settingsChanged.emit()
+    
+    def on_axis_size_changed(self):
+        """Handler for axis size changes"""
+        self.font_sizes_modified['axis'] = True
+        self.settingsChanged.emit()
+    
+    def on_ticks_size_changed(self):
+        """Handler for ticks size changes"""
+        self.font_sizes_modified['ticks'] = True
+        self.settingsChanged.emit()
+    
     def get_settings(self):
-        return {
+        settings = {
             'font_family': self.font_family_combo.currentText(),
-            'fontsize_title': self.title_size_spin.value(),
-            'fontsize_axis': self.axis_size_spin.value(),
-            'fontsize_ticks': self.ticks_size_spin.value(),
             'title': self.title_edit.text(),
             'x_label': self.x_label_edit.text(),
             'y_label': self.y_label_edit.text(),
             'show_title': bool(self.title_edit.text().strip())
         }
+        
+        # Only include font sizes if they were explicitly modified by the user
+        if self.font_sizes_modified['title']:
+            settings['fontsize_title'] = self.title_size_spin.value()
+        if self.font_sizes_modified['axis']:
+            settings['fontsize_axis'] = self.axis_size_spin.value()
+        if self.font_sizes_modified['ticks']:
+            settings['fontsize_ticks'] = self.ticks_size_spin.value()
+        
+        return settings
 
 
 class ColorsTab(QWidget):
@@ -218,6 +246,7 @@ class ColorsTab(QWidget):
         self.context = context  # "user_plot" or "analysis_only"
         self.color_buttons = {}
         self.hatch_combos = {}
+        self.dialog_ref = None  # Reference to main dialog will be set later
         self.init_ui()
         
     def init_ui(self):
@@ -354,6 +383,15 @@ class ColorsTab(QWidget):
     
     def on_seaborn_settings_changed(self):
         """Handle changes to Seaborn style context or palette"""
+        # Reset font size modifications when style context changes
+        # This allows seaborn context to take full effect
+        if self.dialog_ref and hasattr(self.dialog_ref, 'typography_tab'):
+            self.dialog_ref.typography_tab.font_sizes_modified = {
+                'title': False,
+                'axis': False,
+                'ticks': False
+            }
+        
         if self.use_seaborn_checkbox.isChecked():
             # Apply seaborn palette colors to color buttons
             try:
@@ -540,14 +578,6 @@ class StyleTab(QWidget):
         self.legend_check.setChecked(self.config.get('show_legend', True))
         self.legend_check.toggled.connect(self.settingsChanged)
         legend_layout.addWidget(self.legend_check, 0, 0, 1, 2)
-        
-        # Legend Position
-        legend_layout.addWidget(QLabel("Position:"), 1, 0)
-        self.legend_position_combo = QComboBox()
-        self.legend_position_combo.addItems(['upper right', 'upper left', 'lower right', 'lower left', 'center', 'best'])
-        self.legend_position_combo.setCurrentText(self.config.get('legend_position', 'upper right'))
-        self.legend_position_combo.currentTextChanged.connect(self.settingsChanged)
-        legend_layout.addWidget(self.legend_position_combo, 1, 1)
         
         layout.addWidget(legend_group)
         layout.addStretch()
@@ -842,45 +872,13 @@ class SignificanceTab(QWidget):
         letters_layout.addWidget(self.letters_offset_spin, 2, 1)
         
         layout.addWidget(letters_group)
-        
-        # Comparison Bars Group
-        bars_group = QGroupBox("Comparison Bars")
-        bars_layout = QGridLayout(bars_group)
-        
-        # Show Pairwise Comparisons
-        self.show_comparisons_check = QCheckBox("Show Pairwise Comparisons")
-        self.show_comparisons_check.setChecked(self.config.get('show_pairwise_comparisons', True))
-        self.show_comparisons_check.toggled.connect(self.settingsChanged)
-        bars_layout.addWidget(self.show_comparisons_check, 0, 0, 1, 2)
-        
-        # Comparison Font Size
-        bars_layout.addWidget(QLabel("Font Size:"), 1, 0)
-        self.comparison_fontsize_spin = QSpinBox()
-        self.comparison_fontsize_spin.setRange(6, 24)
-        self.comparison_fontsize_spin.setValue(self.config.get('comparison_font_size', 14))
-        self.comparison_fontsize_spin.valueChanged.connect(self.settingsChanged)
-        bars_layout.addWidget(self.comparison_fontsize_spin, 1, 1)
-        
-        # Comparison Line Height
-        bars_layout.addWidget(QLabel("Line Height:"), 2, 0)
-        self.comparison_height_spin = QDoubleSpinBox()
-        self.comparison_height_spin.setRange(0.0, 0.5)
-        self.comparison_height_spin.setSingleStep(0.01)
-        self.comparison_height_spin.setValue(self.config.get('comparison_line_height', 0.1))
-        self.comparison_height_spin.valueChanged.connect(self.settingsChanged)
-        bars_layout.addWidget(self.comparison_height_spin, 2, 1)
-        
-        layout.addWidget(bars_group)
         layout.addStretch()
     
     def get_settings(self):
         return {
             'show_significance_letters': self.show_letters_check.isChecked(),
             'significance_font_size': self.letters_fontsize_spin.value(),
-            'significance_height_offset': self.letters_offset_spin.value(),
-            'show_pairwise_comparisons': self.show_comparisons_check.isChecked(),
-            'comparison_font_size': self.comparison_fontsize_spin.value(),
-            'comparison_line_height': self.comparison_height_spin.value()
+            'significance_height_offset': self.letters_offset_spin.value()
         }
 
 
@@ -939,6 +937,9 @@ class PlotAestheticsDialog(QDialog):
         self.raincloud_tab = RaincloudTab(self.groups, self.config)
         self.error_tab = ErrorBarsTab(self.config)
         self.significance_tab = SignificanceTab(self.config)
+        
+        # Set dialog reference for cross-tab communication
+        self.colors_tab.dialog_ref = self
         
         # Tabs hinzufügen
         self.tab_widget.addTab(self.size_tab, "Size")
