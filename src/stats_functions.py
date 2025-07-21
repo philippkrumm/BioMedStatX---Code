@@ -1555,7 +1555,7 @@ class StatisticalTester:
 
         if len(valid_groups) == 2:
             return StatisticalTester._stat_test_two_groups(
-                results, valid_groups, samples_to_use, original_samples, dependent, test_recommendation, alpha
+                results, valid_groups, samples_to_use, original_samples, dependent, test_recommendation, alpha, test_info=test_info
             )
 
         return StatisticalTester._stat_test_multi_groups(
@@ -1582,7 +1582,7 @@ class StatisticalTester:
         return StatisticalTester._standardize_results(results)
 
     @staticmethod
-    def _stat_test_two_groups(results, valid_groups, samples_to_use, original_samples, dependent, test_recommendation, alpha):
+    def _stat_test_two_groups(results, valid_groups, samples_to_use, original_samples, dependent, test_recommendation, alpha, test_info=None):
         g1, g2 = valid_groups
         data1, data2 = samples_to_use[g1], samples_to_use[g2]
         try:
@@ -1593,9 +1593,14 @@ class StatisticalTester:
                     return StatisticalTester._wilcoxon_test(results, g1, g2, data1, data2, alpha)
             else:
                 if test_recommendation == "parametric":
-                    return StatisticalTester._independent_ttest(results, g1, g2, data1, data2, alpha)
-                else:
-                    return StatisticalTester._mannwhitney_test(results, g1, g2, data1, data2, alpha)
+                    # Prüfe Varianzhomogenität für Welch-Test
+                    equal_var = True
+                    if test_info is not None:
+                        if test_info.get("transformation"):
+                            equal_var = test_info.get("variance_test", {}).get("transformed", {}).get("equal_variance", True)
+                        else:
+                            equal_var = test_info.get("variance_test", {}).get("equal_variance", True)
+                    return StatisticalTester._independent_ttest(results, g1, g2, data1, data2, alpha, equal_var=equal_var)
         except Exception as e:
             results["test"] = "Error during test"
             results["error"] = str(e)
@@ -1668,9 +1673,11 @@ class StatisticalTester:
         return StatisticalTester._standardize_results(results)
     
     @staticmethod
-    def _independent_ttest(results, g1, g2, data1, data2, alpha):
-        statistic, p_value = stats.ttest_ind(data1, data2, equal_var=True)
+    def _independent_ttest(results, g1, g2, data1, data2, alpha, equal_var=True):
+        statistic, p_value = stats.ttest_ind(data1, data2, equal_var=equal_var)
         test_name = "t-test (independent)"
+        if not equal_var:
+            test_name = "Welch's t-test (unequal variances)"
         n1, n2 = len(data1), len(data2)
         s1, s2 = np.var(data1, ddof=1), np.var(data2, ddof=1)
         s_pooled = np.sqrt(((n1-1)*s1 + (n2-1)*s2) / (n1+n2-2))
