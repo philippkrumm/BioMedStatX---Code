@@ -23,101 +23,27 @@ This guide explains how to use the BioMedStatX application: from launching the p
 
 ![Step 1: Import Data - Browse Button](../assets/HowToScreenshots/Bild1.png)
 
-**Step 1 (see number 1 in the picture):** Click the "Browse..." button (highlighted in red) in the top right to select your Excel or CSV data file. This is the first step in the workflow and starts the data import process.
+**Step 1 (see number 1 in the picture):** Click the "Browse..." button (highlighted in red, number 1) in the top right to select your Excel or CSV data file. This is the first step in the workflow and starts the data import process.
 
 
 
 ## 3. Selecting Groups & Measurement Columns
 
-![Step 2: Select Worksheet, Group, and Value Columns](../assets/HowToScreenshots/Bild3.png)
+![Step 2: Select Worksheet, Group, and Value Columns](../assets/HowToScreenshots/Bild2.png)
 
 **Step 2 (see numbers 2 and 3 in the picture):** First, select the worksheet, group column, and value column in the Data Configuration section (number 2 in the picture). Then, click the "Select groups for plot" button (number 3 in the picture) to choose which groups to include in your plot.
 
----
-
-
-## 4. Assumption Checks & Data Transformations
-
-Before any statistical test, the app automatically checks for normal distribution and equal variances. If your data does not meet these assumptions, you will be prompted to apply a transformation (log, Box–Cox, or arcsine–sqrt) to improve suitability for analysis. You can skip or accept the suggested transformation.
-
-![Step 3: Select Groups for Plot](../assets/HowToScreenshots/Bild4.png)
+![Step 3: Select Groups for Plot](../assets/HowToScreenshots/Bild3.png)
 
 **Step 3 (see number 4 in the picture):** In the group selection dialog, select the groups you want to display in the plot by checking the boxes (number 4 in the picture). Then click "OK" to confirm your selection.
 
+![Statistical Analysis Selection](../assets/HowToScreenshots/Bild4.png)
 
-
-## 5. Statistical Analyses
-
-BioMedStatX automatically selects the appropriate statistical test based on your data and design. Supported analyses include:
-
-- Two-group comparisons (independent or paired)
-- Multi-group comparisons (one-way, two-way, repeated measures, mixed designs)
-- Parametric and non-parametric alternatives (e.g., t-tests, ANOVA, Mann–Whitney, Kruskal–Wallis)
-
-You do not need to choose the test yourself—the software guides you and explains the result in plain language.
-
-![Statistical Analysis Selection](../assets/HowToScreenshots/Bild5.png)
-
-**Step 5:** The application automatically selects the appropriate statistical test. Click (1) to view details or options for the analysis. Click (2) to run the test and see the results.
+**Step 5:** In the configure plot window, you can set the file name (number 5 in the picture), change the group order, select if the sample are dependent and select if you want to create a plot (number 6 in the picture). If you do not create a plot, the analysis results in the comprehensive excel sheet only.
 
 ---
 
-
-
-### 5.1. Non-parametric Alternatives
-
-If your data does not meet the requirements for standard ANOVA, the app will automatically use robust non-parametric alternatives for complex designs (e.g., non-parametric two-way or repeated measures ANOVA).
-
----
-
-
-
-## 6. Post‑Hoc Comparisons
-
-If a group comparison is significant, the app automatically performs post-hoc tests (e.g., Tukey, Dunn, Bonferroni, or Dunnett) to show which groups differ. Results are clearly displayed in the results table and as annotations on the plots.
-
-![Post-Hoc Analysis Results](../assets/HowToScreenshots/Bild6.png)
-
-**Step 6 (see number 8 in the picture):** If a group comparison is significant, select the desired post-hoc test (number 8 in the picture) to see which groups differ. Results are shown in tables and annotated on plots.
-
----
-
-
-
-## 7. Decision Tree Visualization
-
-You can visualize the statistical decision process via **Analysis → Show Decision Tree**. The app displays a graphical flowchart showing which tests were chosen and why, with the actual path highlighted. The image can be saved for documentation.
-
-![Decision Tree Visualization](../assets/HowToScreenshots/Bild7.png)
-
-**Step 7 (see number 9 in the picture):** Click the button (number 9 in the picture) to open the decision tree visualization. The highlighted path shows which statistical tests were chosen and why. You can save the image for documentation.
-
----
-
-
-
-## 8. Exporting Results
-
-After your analysis, you can export all results to Excel with a single click (**File → Export Results**). The exported file contains:
-- A summary of all tests and p-values
-- Assumption checks
-- Main results and effect sizes
-- Descriptive statistics for each group
-- The decision tree image
-- Raw data snapshots
-- Pairwise comparisons
-- A chronological analysis log
-Each sheet is clearly named for easy navigation.
-
-![Export Results to Excel](../assets/HowToScreenshots/Bild8.png)
-
-**Step 8 (see number 10 in the picture):** Click the button (number 10 in the picture) to export all results to Excel. Choose the export location and confirm. The exported file contains all analysis details and results.
-
----
-
-
-
-## 9. Plotting & Customization
+## 4. Plotting & Customization
 
 BioMedStatX creates publication-ready plots for your results. Supported plot types include:
 - Bar charts (with error bars)
@@ -138,19 +64,85 @@ Use the **Plot Settings** dialog to adjust:
 - Data point style (jitter, strip, swarm)
 - Overlay options (paired lines, custom annotations)
 
-![Plot Customization Settings](../assets/HowToScreenshots/Bild9.png)
+![Plot Customization Settings](../assets/HowToScreenshots/Bild5.png)
 
-**Step 9 (see number 11 in the picture):** Click the button (number 11 in the picture) to open the plot settings dialog. Adjust titles, axis labels, colors, error bars, and more. Preview changes and save or export the customized plot.
+**Step 9 (see number 11 in the picture):** In the plot settings dialog, adjust titles, axis labels, colors, error bars, and more. Preview changes and save or export the customized plot. All changes are shown in a live preview before saving. 
 
-All changes are shown in a live preview before saving. Most options are also available for export (PDF/PNG) and are reflected in the exported plots.
+![Post-Hoc Analysis Results](../assets/HowToScreenshots/Bild6.png)
 
-**Note:** Some advanced customizations (e.g., custom color maps or font families) may require the advanced options dialog.
+**Step 6 (see number 8 in the picture):** It is possible to create different plots from the same dataset if needed (number 6 in the picture).
+---
+
+
+
+## 6. Statistical Analyses
+
+BioMedStatX automatically selects the appropriate statistical test based on your data and design. Supported analyses include:
+
+- Two-group comparisons (independent or paired)
+- Multi-group comparisons (one-way, two-way, repeated measures, mixed designs)
+- Parametric and non-parametric alternatives (e.g., t-tests, ANOVA, Mann–Whitney, Kruskal–Wallis)
+
+You do not need to choose the test yourself—the software guides you and explains the result in plain language.
+
+![Decision Tree Visualization](../assets/HowToScreenshots/Bild7.png)
+
+**Step 7 (see number 9 in the picture):** Click the button (number 9 in the picture) to start the analysis. You can analyse the selected plot or create and analyze all plots.
 
 ---
 
 
 
-## 10. Outlier Detection (Optional)
+## 7. Assumption Checks & Data Transformations
+
+Before any statistical test, the app automatically checks for normal distribution and equal variances. If your data does not meet these assumptions, you will be prompted to apply a transformation (log, Box–Cox, or arcsine–sqrt) to improve suitability for analysis. You can skip or accept the suggested transformation.
+
+![Export Results to Excel](../assets/HowToScreenshots/Bild8.png)
+
+**Step 8 (see number 10 in the picture):** If the assumptions for a parametric test are not met, choose one of the three possible transformations (number 10 in the picture).
+
+---
+
+
+
+## 8. Post‑Hoc Comparisons
+
+If a group comparison is significant, the app automatically performs post-hoc tests (e.g., Tukey, Dunn, Bonferroni, or Dunnett) to show which groups differ. Results are clearly displayed in the results table and as annotations on the plots.
+
+![Export Results to Excel](../assets/HowToScreenshots/Bild9.png)
+
+**Step 8 (see number 10 in the picture):** After the parametric or non-parametric test was performed and revealed a significance, you need to choose on of the post-hoc tests (number 11 in the picture).
+
+---
+
+
+
+## 9. Decision Tree Visualization
+
+The statistical decision process is visualized by a decision tree. The app displays a graphical flowchart showing which tests were chosen and why, with the actual path highlighted. The image is included into the excel workbook.
+
+---
+
+
+
+## 10. Exporting Results
+
+After your analysis, all the results are exported automatically in a comprehensive excel file. The exported file contains:
+- A summary of all tests and p-values
+- Assumption checks
+- Main results and effect sizes
+- Descriptive statistics for each group
+- The decision tree image
+- Raw data snapshots
+- Pairwise comparisons
+- A chronological analysis log
+Each sheet is clearly named for easy navigation.
+
+---
+
+
+
+## 11. Outlier Detection (Optional)
 
 Under **Analysis → Detect Outliers**, you can identify and flag outliers in your data using:
 - Modified Z-Score Test
@@ -163,7 +155,7 @@ Results are exported to Excel for further review.
 
 
 
-## 11. Window Resizing, Scrollability, and Scaling
+## 12. Window Resizing, Scrollability, and Scaling
 
 BioMedStatX is designed to work on all common screen sizes and resolutions:
 - All windows and dialogs can be resized by dragging the edges.
@@ -181,7 +173,7 @@ If you encounter display issues, please report your OS, screen resolution, and a
 ---
 
 
-## 12. Quick Workflow
+## 13. Quick Workflow
 
 1. **Launch** the application.
 2. **Browse** and **Load** your data file.
@@ -197,12 +189,6 @@ If you encounter display issues, please report your OS, screen resolution, and a
 
 ---
 
-
----
-
-
----
-
 ### Tips & Best Practices
 
 - Ensure your group column has consistent, non-empty labels.
@@ -210,7 +196,6 @@ If you encounter display issues, please report your OS, screen resolution, and a
 - For paired designs, confirm equal sample sizes per group.
 - Use the **Analysis Log** sheet in the exported Excel file for troubleshooting and detailed steps.
 - Preview your plot settings before exporting for best results.
-- If you encounter issues with window scaling or content visibility, maximize the window or adjust your OS scaling settings.
 
 ---
 
