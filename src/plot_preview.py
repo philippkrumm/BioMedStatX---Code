@@ -1,6 +1,6 @@
 """
-Preview Widget für Plot-Darstellung
-Zeigt Live-Vorschau der Plot-Einstellungen
+Preview widget for plot display
+Shows live preview of plot settings
 """
 
 import sys
@@ -14,36 +14,36 @@ from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 
-# Import der DataVisualizer Klasse
+# Import the DataVisualizer class
 try:
     from stats_functions import DataVisualizer
 except ImportError:
-    # Fallback wenn Import nicht funktioniert
+    # Fallback if import does not work
     print("Warning: Could not import DataVisualizer from stats_functions")
     DataVisualizer = None
 
 class PlotPreviewWidget(FigureCanvasQTAgg):
     """
-    Widget zur Live-Vorschau von Plots basierend auf Konfiguration.
-    Verwendet die zentrale plot_from_config Methode für konsistente Darstellung.
+    Widget for live preview of plots based on configuration.
+    Uses the central plot_from_config method for consistent rendering.
     """
     
     def __init__(self, parent=None, figsize=(5, 4), dpi=100):
         """
-        Initialisiert das Preview Widget mit Live-Vorschau.
+        Initializes the preview widget with live preview.
         """
         self.fig = Figure(figsize=figsize, dpi=dpi)
         super().__init__(self.fig)
         self.setParent(parent)
 
-        # Initialer subplot
+        # Initial subplot
         self.ax = self.fig.add_subplot(111)
 
-        # Daten-Container
+        # Data container
         self.groups = []
         self.samples = {}
 
-        # Standard-Konfiguration für alle Appearance-Optionen
+        # Default configuration for all appearance options
         self.default_config = {
             'plot_type': 'Bar',
             'colors': {},
@@ -88,11 +88,11 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
             'frame_thickness': 0.7
         }
 
-        # Initiale leere Darstellung
+        # Initial empty display
         self._show_placeholder()
     
     def _show_placeholder(self):
-        """Zeigt Platzhalter-Text wenn keine Daten vorhanden"""
+        """Shows placeholder text when no data is available"""
         self.ax.clear()
         self.ax.text(0.5, 0.5, 'No data available\nfor preview', 
                      ha='center', va='center', transform=self.ax.transAxes,
@@ -104,24 +104,24 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
     
     def set_data(self, groups, samples):
         """
-        Setzt die aktuellen Daten für die Vorschau.
+        Sets the current data for the preview.
         
         Parameters:
         -----------
         groups : list
-            Liste der Gruppennamen
+            List of group names
         samples : dict
-            Dictionary mit Gruppennamen als Keys und Datenwerten als Values
+            Dictionary with group names as keys and data values as values
         """
         self.groups = groups if groups else []
         self.samples = samples if samples else {}
         
-        # Validierung der Daten
+        # Validate data
         if not self.groups or not self.samples:
             self._show_placeholder()
             return
         
-        # Prüfe ob alle Gruppen Daten haben
+        # Check if all groups have data
         valid_groups = []
         valid_samples = {}
         
@@ -138,13 +138,13 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
     
     def update_plot(self, config=None):
         """
-        Aktualisiert die Plot-Darstellung basierend auf der Konfiguration.
+        Updates the plot display based on the configuration.
         
         Parameters:
         -----------
         config : dict, optional
-            Konfigurationsdictionary mit Plot-Parametern.
-            Wenn None, wird Standard-Konfiguration verwendet.
+            Configuration dictionary with plot parameters.
+            If None, the default configuration is used.
         """
         if not self.groups or not self.samples:
             self._show_placeholder()
@@ -152,18 +152,18 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
         
         if DataVisualizer is None:
             self.ax.clear()
-            self.ax.text(0.5, 0.5, 'DataVisualizer nicht verfügbar', 
+            self.ax.text(0.5, 0.5, 'DataVisualizer not available', 
                          ha='center', va='center', transform=self.ax.transAxes,
                          fontsize=12, color='red')
             self.ax.axis('off')
             self.draw()
             return
         
-        # Verwende Standard-Config wenn keine übergeben
+        # Use default config if none provided
         if config is None:
             config = self.default_config.copy()
         else:
-            # Merge mit Standard-Config für fehlende Keys
+            # Merge with default config for missing keys
             merged_config = self.default_config.copy()
             merged_config.update(config)
             config = merged_config
@@ -185,28 +185,28 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
             # Clear and redraw
             self.ax.clear()
             
-            # Force matplotlib to refresh font cache wenn font_family geändert wurde
+            # Force matplotlib to refresh font cache if font_family was changed
             if 'font_family' in config:
                 import matplotlib.pyplot as plt
                 
-                # WICHTIG: Setze Font sofort und explizit ohne _rebuild
+                # IMPORTANT: Set font immediately and explicitly without _rebuild
                 font_family = config['font_family']
                 plt.rcParams['font.family'] = font_family
                 
-                # Erzwinge Update durch rcParams reset
+                # Force update by rcParams reset
                 try:
                     plt.rcdefaults()
                     plt.rcParams['font.family'] = font_family
                 except Exception as e:
                     print(f"Font cache update error: {e}")
-                    
-                # Setze auch für diese Figure explizit
+                
+                # Also set explicitly for this figure
                 try:
                     self.fig.suptitle('', fontfamily=font_family)  # Dummy title to force font load
                 except:
                     pass
             
-            # Verwende die zentrale Dispatcher-Methode
+            # Use the central dispatcher method
             DataVisualizer.plot_from_config(self.ax, self.groups, self.samples, config)
             
             # Force immediate redraw
@@ -216,7 +216,7 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
         except Exception as e:
             print(f"Error in plot update: {str(e)}")
             self.ax.clear()
-            self.ax.text(0.5, 0.5, f'Fehler beim Zeichnen:\n{str(e)}', 
+            self.ax.text(0.5, 0.5, f'Error while drawing:\n{str(e)}', 
                          ha='center', va='center', transform=self.ax.transAxes,
                          fontsize=10, color='red')
             self.ax.axis('off')
@@ -224,23 +224,23 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
     
     def get_current_config(self):
         """
-        Gibt die aktuelle Konfiguration zurück.
+        Returns the current configuration.
         
         Returns:
         --------
         dict
-            Aktuelle Konfiguration
+            Current configuration
         """
         return self.default_config.copy()
     
     def set_default_config(self, config):
         """
-        Setzt eine neue Standard-Konfiguration.
+        Sets a new default configuration.
         
         Parameters:
         -----------
         config : dict
-            Neue Standard-Konfiguration
+            New default configuration
         """
         if config:
             self.default_config.update(config)

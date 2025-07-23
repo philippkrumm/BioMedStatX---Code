@@ -8106,6 +8106,7 @@ class ResultsExporter:
             "• Corrected: Indicates whether a correction for multiple testing was applied\n"
             "• Significant: 'Yes' if p < Alpha (usually 0.05)\n"
             "• Effect size: Magnitude of the difference (e.g., Cohen's d, Hedges' g)\n"
+            "• Classical Cohen limits (d = small≤0.2; medium≤0.5; large≤0.8)\n"
             "• 95% CI: Confidence interval for the difference between groups (if calculated)\n"
             "Interpretation of significance (typical): * p<0.05; ** p<0.01; *** p<0.001\n\n"
             "Available Post-hoc Tests:\n"

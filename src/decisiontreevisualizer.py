@@ -511,7 +511,7 @@ class DecisionTreeVisualizer:
                         highlighted.add(('J1_M_SPH', 'K1_M_SPH'))
                         highlighted.add(('K1_M_SPH', 'L1_M_DEP'))
                         highlighted.add(('L1_M_DEP', 'M1_M_DEP'))
-                        # Nur Post-hoc hinzufügen, wenn ANOVA signifikant:
+                        # Only add post-hoc if ANOVA is significant:
                         alpha = results.get("alpha", 0.05)
                         if p_value is not None and p_value < alpha:
                             highlighted.add(('M1_M_DEP', 'O1_PH'))
@@ -521,7 +521,7 @@ class DecisionTreeVisualizer:
                         highlighted.add(('J1_M_SPH', 'K1_M_SPH'))
                         highlighted.add(('K1_M_SPH', 'L1_M_MIX'))
                         highlighted.add(('L1_M_MIX', 'M1_M_MIX'))
-                        # Nur Post-hoc hinzufügen, wenn Mixed-ANOVA signifikant:
+                        # Only add post-hoc if Mixed-ANOVA is significant:
                         alpha = results.get("alpha", 0.05)
                         if p_value is not None and p_value < alpha:
                             highlighted.add(('M1_M_MIX', 'O1_PH'))
@@ -541,7 +541,7 @@ class DecisionTreeVisualizer:
                             if p_value is not None and p_value < alpha:
                                 highlighted.add(('M1_M_IND_ONE', 'O1_PH'))
 
-                    # Post-hoc-Testarten nur, wenn ANOVA signifikant war:
+                    # Post-hoc test types only if ANOVA was significant:
                     alpha = results.get("alpha", 0.05)
                     if p_value is not None and p_value < alpha:
                         # Call helper function to determine which post-hoc path to highlight
