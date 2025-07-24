@@ -1246,256 +1246,141 @@ class StatisticalTester:
         return standardized
 
     @staticmethod
-    def check_normality_and_variance(groups, samples, dataset_name=None, progress_text=None, column_name=None, already_transformed=False):
+    def check_normality_and_variance(
+        groups, samples, dataset_name=None, progress_text=None, column_name=None, already_transformed=False,
+        formula="Value ~ C(Group)"
+    ):
         """
-        Checks normality and homogeneity of variance of the data.
-        Performs transformations if necessary.
-        Returns transformed data, test recommendation, and test info.
-        
-        Parameters:
-        -----------
-        groups : list
-            List of groups to analyze
-        samples : dict
-            Dictionary with group names as keys and lists of measurements as values
-        dataset_name : str, optional
-            Name of the dataset for logging purposes
-        progress_text : str, optional
-            Progress text for dialog title
-        column_name : str, optional
-            Column name for dialog title
-        already_transformed : bool, optional
-            Indicates if the data has already been transformed (prevents second transformation)
+        Checks normality and homogeneity of variance using model residuals (before and after transformation).
         """
         from scipy.stats import boxcox, boxcox_normmax
+        import numpy as np
+        import pandas as pd
+        from statsmodels.formula.api import ols
 
-        test_info = {"normality_tests": {}, "variance_test": {}, "transformation": None}
+        test_info = {"pre_transformation": {}, "post_transformation": {}, "transformation": None}
         valid_groups = [g for g in groups if g in samples and len(samples[g]) > 0]
         transformed_samples = {g: samples[g].copy() for g in valid_groups}
-        
-        # Initialize test_recommendation with default value
-        test_recommendation = "parametric"  # Default to parametric if all tests pass
+        test_recommendation = "parametric"
 
-        # --- Normality: Shapiro-Wilk-Test für jede Gruppe einzeln
-        test_info["normality_tests"] = {}
-        all_normal = True
-        for group in valid_groups:
-            values = samples[group]
-            if len(values) >= 3 and len(set(values)) > 1:
-                try:
-                    stat, pval = stats.shapiro(values)
-                    is_normal = pval > 0.05
-                    test_info["normality_tests"][group] = {
-                        "statistic": stat, "p_value": pval, "is_normal": is_normal
-                    }
-                    if not is_normal:
-                        all_normal = False
-                except Exception as e:
-                    test_info["normality_tests"][group] = {"statistic": None, "p_value": None, "error": str(e)}
-                    all_normal = False
-            else:
-                test_info["normality_tests"][group] = {"statistic": None, "p_value": None, "note": "Too few values"}
-                all_normal = False
-        all_values = []
-        for group in valid_groups:
-            all_values.extend(samples[group])
-        if len(all_values) >= 3 and len(set(all_values)) > 1:
-            try:
-                stat, pval = stats.shapiro(all_values)
-                is_normal = pval > 0.05
-                test_info["normality_tests"]["all_data"] = {
-                    "statistic": stat,
-                    "p_value": pval,
-                    "is_normal": is_normal
-                }
-            except Exception as e:
-                test_info["normality_tests"]["all_data"] = {
-                    "statistic": None,
-                    "p_value": None,
-                    "error": str(e)
-                }
-        else:
-            test_info["normality_tests"]["all_data"] = {
-                "statistic": None,
-                "p_value": None,
-                "note": "Too few values"
-            }
-        # --- Levene test for homogeneity of variance
-        data_for_levene = [samples[g] for g in valid_groups]
-        has_equal_variance = True
-        if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene):
-            try:
+        # Fit model and check residuals normality on raw data
+        def make_df(samps):
+            return pd.DataFrame([
+                {"Group": g, "Value": v} for g in valid_groups for v in samps[g]
+            ])
+        df_raw = make_df(samples)
+        from scipy import stats
+        try:
+            model_raw = ols(formula, data=df_raw).fit()
+            resid_raw = model_raw.resid
+            stat, pval = stats.shapiro(resid_raw) if len(resid_raw) >= 3 and len(set(resid_raw)) > 1 else (None, None)
+        except Exception:
+            stat, pval = None, None
+        test_info["pre_transformation"]["residuals_normality"] = {
+            "statistic": stat, "p_value": pval, "is_normal": (pval > 0.05 if pval is not None else False)
+        }
+
+        # Levene test on raw data
+        try:
+            data_for_levene = [samples[g] for g in valid_groups]
+            if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene):
                 stat, pval = stats.levene(*data_for_levene)
                 has_equal_variance = pval > 0.05
-                test_info["variance_test"] = {
-                    "statistic": stat, 
-                    "p_value": pval, 
-                    "equal_variance": has_equal_variance
-                }
-            except Exception as e:
-                test_info["variance_test"] = {
-                    "statistic": None, 
-                    "p_value": None, 
-                    "error": str(e),
-                    "equal_variance": False  # Explicitly set to False on error
-                }
-                has_equal_variance = False
-        else:
-            test_info["variance_test"] = {
-                "statistic": None, 
-                "p_value": None, 
-                "note": "Too few groups or values",
-                "equal_variance": False  # Explicitly set to False if too little data
-            }
+            else:
+                stat, pval, has_equal_variance = None, None, False
+        except Exception:
+            stat, pval, has_equal_variance = None, None, False
+        test_info["pre_transformation"]["variance"] = {
+            "statistic": stat, "p_value": pval, "equal_variance": has_equal_variance
+        }
 
-        # --- Transformation if not normal
-        if not all_normal or not has_equal_variance:
-            # If already transformed, immediately recommend non-parametric test
+        need_transform = not (
+            test_info["pre_transformation"]["residuals_normality"]["is_normal"]
+            and test_info["pre_transformation"]["variance"]["equal_variance"]
+        )
+
+        # Transformation if needed
+        if need_transform:
             if already_transformed:
                 test_info["transformation"] = "No further"
                 return transformed_samples, "non_parametric", test_info
-            
+
             transformation_type = None
             try:
-                # Only show dialog if not already specified
-                if transformation_type is None:
-                    # Use the progress_text and column_name directly
-                    # UIDialogManager now handles the normalization internally
-                    transformation_type = UIDialogManager.select_transformation_dialog(
-                        parent=None, progress_text=progress_text, column_name=column_name
-                    )
+                transformation_type = UIDialogManager.select_transformation_dialog(
+                    parent=None, progress_text=progress_text, column_name=column_name
+                )
             except Exception:
-                transformation_type = "log10"  # Default to log10 if dialog fails
-                
-            # Only store the transformation selection if it's valid
-            if transformation_type:
-                test_info["transformation"] = transformation_type
-                print(f"DEBUG: Transformation wurde gesetzt auf: {test_info['transformation']}")
-
-                # Apply the selected transformation
-                if transformation_type == "log10":
-                    for group in valid_groups:
-                        values = samples[group]
-                        min_val = min(values)
-                        shift = -min_val + 1 if min_val <= 0 else 0
-                        transformed_samples[group] = [np.log10(v + shift) for v in values]
-                elif transformation_type == "boxcox":
-                    for group in valid_groups:
-                        values = samples[group]
-                        min_val = min(values)
-                        shift = -min_val + 1 if min_val <= 0 else 0
-                        shifted = [v + shift for v in values]
-                        try:
-                            lambda_val = boxcox_normmax(shifted)
-                            transformed_samples[group] = list(boxcox(shifted, lambda_val))
-                            test_info["boxcox_lambda"] = lambda_val
-                        except Exception as e:
-                            test_info["transformation_error"] = str(e)
-                            transformed_samples[group] = [np.log10(v + shift) for v in values]
-                elif transformation_type == "arcsin_sqrt":
-                    # Add arcsin_sqrt transformation
-                    for group in valid_groups:
-                        values = samples[group]
-                        min_val = min(values)
-                        max_val = max(values)
-                        # Scale values to 0-1 range if needed
-                        if min_val < 0 or max_val > 1:
-                            scaled = [(v - min_val) / (max_val - min_val) for v in values]
-                        else:
-                            scaled = values
-                        transformed_samples[group] = [np.arcsin(np.sqrt(v)) for v in scaled]
-                    test_info["transformation"] = "arcsin_sqrt"
-            else:
-                # If no transformation was selected or user cancelled, use log10 as default
                 transformation_type = "log10"
-                test_info["transformation"] = transformation_type
-                
-                # Apply log10 transformation as default
-                for group in valid_groups:
-                    values = samples[group]
-                    if all(v > 0 for v in values):
-                        transformed_samples[group] = [np.log10(v) for v in values]
-                    else:
-                        # If negative values exist, add a constant to make all values positive
-                        min_val = min(v for v in values)
-                        offset = abs(min_val) + 1 if min_val <= 0 else 0
-                        transformed_samples[group] = [np.log10(v + offset) for v in values]
-                        print(f"Warning: Negative values detected in {group}. Added offset of {offset}")
-                    print(f"Log10 transformation applied to {group} (as default)")
-                test_info["transformation"] = "log10"
+            if not transformation_type:
+                transformation_type = "log10"
+            test_info["transformation"] = transformation_type
 
-            # Post-test after transformation
-            try:
-                transformed_data = []
-                for group in valid_groups:
-                    for value in transformed_samples[group]:
-                        transformed_data.append({'Group': group, 'Value': value})
-                df_t = pd.DataFrame(transformed_data)
-                from statsmodels.formula.api import ols
-                model_t = ols('Value ~ C(Group)', data=df_t).fit()
-                residuals_t = model_t.resid
-                if len(residuals_t) >= 3 and len(set(residuals_t)) > 1:
-                    stat, pval = stats.shapiro(residuals_t)
-                    test_info["normality_tests"]["transformed_data"] = {
-                        "statistic": stat, "p_value": pval, "is_normal": pval > 0.05
-                    }
-            except Exception as e:
-                test_info["normality_tests"]["transformed_data"] = {
-                    "statistic": None, "p_value": None, "error": str(e)
-                }
-        # Nur wenn Transformation durchgeführt wurde: Shapiro-Wilk pro Gruppe auf transformierten Daten und Levene-Test
-        print(f"DEBUG: Wert von test_info['transformation']: {test_info.get('transformation')}")
-        if test_info.get("transformation") not in [None, "No further"]:
-            test_info["normality_tests"]["transformed_groups"] = {}
+            # Apply transformation
             for group in valid_groups:
-                values = transformed_samples[group]
-                if len(values) >= 3 and len(set(values)) > 1:
+                values = samples[group]
+                min_val = min(values)
+                shift = -min_val + 1 if min_val <= 0 else 0
+                if transformation_type == "log10":
+                    transformed_samples[group] = [np.log10(v + shift) for v in values]
+                elif transformation_type == "boxcox":
+                    shifted = [v + shift for v in values]
                     try:
-                        stat, pval = stats.shapiro(values)
-                        is_normal = pval > 0.05
-                        test_info["normality_tests"]["transformed_groups"][group] = {
-                            "statistic": stat, "p_value": pval, "is_normal": is_normal
-                        }
+                        lambda_val = boxcox_normmax(shifted)
+                        transformed_samples[group] = list(boxcox(shifted, lambda_val))
+                        test_info["boxcox_lambda"] = lambda_val
                     except Exception as e:
-                        test_info["normality_tests"]["transformed_groups"][group] = {"statistic": None, "p_value": None, "error": str(e)}
-                else:
-                    test_info["normality_tests"]["transformed_groups"][group] = {"statistic": None, "p_value": None, "note": "Too few values"}
-            # Levene-Test auf transformierten Daten
-            try:
-                data_for_levene_trans = [transformed_samples[g] for g in valid_groups]
-                if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene_trans):
-                    stat, pval = stats.levene(*data_for_levene_trans)
-                    test_info["variance_test"]["transformed"] = {
-                        "statistic": stat, "p_value": pval, "equal_variance": pval > 0.05
-                    }
-            except Exception as e:
-                test_info["variance_test"]["transformed"] = {
-                    "statistic": None, "p_value": None, "error": str(e)
-                }
+                        test_info["transformation_error"] = str(e)
+                        transformed_samples[group] = [np.log10(v + shift) for v in values]
+                elif transformation_type == "arcsin_sqrt":
+                    max_val = max(values)
+                    # Scale to 0-1 if needed
+                    if min_val < 0 or max_val > 1:
+                        scaled = [(v - min_val) / (max_val - min_val) for v in values]
+                    else:
+                        scaled = values
+                    transformed_samples[group] = [np.arcsin(np.sqrt(v)) for v in scaled]
 
-            # --- Test recommendation after transformation (ONLY if transformation was done)
-            normal_after = test_info["normality_tests"].get("transformed_data", {}).get("is_normal", False)
-            varhom_after = test_info["variance_test"].get("transformed", {}).get("equal_variance", False)
+        # Fit model and check residuals normality on transformed data
+        df_tr = make_df(transformed_samples)
+        try:
+            model_tr = ols(formula, data=df_tr).fit()
+            resid_tr = model_tr.resid
+            stat2, pval2 = stats.shapiro(resid_tr) if len(resid_tr) >= 3 and len(set(resid_tr)) > 1 else (None, None)
+        except Exception:
+            stat2, pval2 = None, None
+        test_info["post_transformation"]["residuals_normality"] = {
+            "statistic": stat2, "p_value": pval2, "is_normal": (pval2 > 0.05 if pval2 is not None else False)
+        }
 
-            if normal_after and varhom_after:
-                test_recommendation = "parametric"
-            elif normal_after and not varhom_after:
-                # Key change: For t-tests with unequal variances, use Welch's t-test
-                if len(valid_groups) == 2:
-                    test_recommendation = "parametric"  # Still parametric, but will use Welch's t-test
-                    test_info["note"] = "Normal distribution but unequal variances – Welch's t-test will be used."
-                else:
-                    # For ANOVA with unequal variances
-                    test_recommendation = "parametric"  # Could be "welch" for Welch's ANOVA
-                    test_info["note"] = "Normal distribution but unequal variances – Welch's ANOVA will be used."
+        # Levene test on transformed data
+        try:
+            data_for_levene_tr = [transformed_samples[g] for g in valid_groups]
+            if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene_tr):
+                stat_tr, pval_tr = stats.levene(*data_for_levene_tr)
+                has_equal_variance_tr = pval_tr > 0.05
             else:
-                test_recommendation = "non_parametric"
+                stat_tr, pval_tr, has_equal_variance_tr = None, None, False
+        except Exception:
+            stat_tr, pval_tr, has_equal_variance_tr = None, None, False
+        test_info["post_transformation"]["variance"] = {
+            "statistic": stat_tr, "p_value": pval_tr, "equal_variance": has_equal_variance_tr
+        }
 
-            # Add debug log
-            print(f"DEBUG: Final recommendation after transformation: {test_recommendation}")
-            print(f"DEBUG: normal_after={normal_after}, varhom_after={varhom_after}")
-            print(f"DEBUG: recommendation = {test_recommendation}")
-            print("DEBUG TREE: Taking parametric path" if test_recommendation == "parametric" else "DEBUG TREE: Taking non-parametric path")
+        # Recommend test based on assumptions
+        post_norm = test_info["post_transformation"]["residuals_normality"]["is_normal"]
+        post_var = test_info["post_transformation"]["variance"]["equal_variance"]
+
+        if post_norm and post_var:
+            test_recommendation = "parametric"
+        elif post_norm and not post_var and len(valid_groups) == 2:
+            test_recommendation = "parametric"  # Welch-Test
+            test_info["note"] = "Normal distribution but unequal variances – Welch's t-test will be used."
+        elif post_norm and not post_var and len(valid_groups) > 2:
+            test_recommendation = "parametric"  # Welch-ANOVA
+            test_info["note"] = "Normal distribution but unequal variances – Welch's ANOVA will be used."
+        else:
+            test_recommendation = "non_parametric"
 
         return transformed_samples, test_recommendation, test_info
     
@@ -2294,10 +2179,9 @@ class StatisticalTester:
         recommendation = 'parametric'
         
         try:
-            # 1. Extract group data
             samples = {}
             groups = []
-    
+
             if test == 'mixed_anova':
                 if not between or not within:
                     return {"error": "Mixed ANOVA requires between and within factor"}
@@ -2308,7 +2192,9 @@ class StatisticalTester:
                         subset = df[(df[b_factor] == b_val) & (df[w_factor] == w_val)]
                         samples[group_label] = subset[dv].tolist()
                 groups = list(samples.keys())
-    
+                # Formel für Mixed ANOVA (für Annahmenprüfung)
+                formula = f"Value ~ C({b_factor}) * C({w_factor})"
+
             elif test == 'repeated_measures_anova':
                 if not within:
                     return {"error": "RM-ANOVA requires within factor"}
@@ -2316,7 +2202,9 @@ class StatisticalTester:
                 for lvl in df[w_factor].unique():
                     samples[lvl] = df[df[w_factor] == lvl][dv].tolist()
                 groups = list(samples.keys())
-    
+                # Formel für RM-ANOVA (für Annahmenprüfung)
+                formula = f"Value ~ C({w_factor})"
+
             elif test == 'two_way_anova':
                 if not between or len(between) != 2:
                     return {"error": "Two-Way ANOVA requires two between factors"}
@@ -2327,14 +2215,18 @@ class StatisticalTester:
                         subset = df[(df[fA] == a_val) & (df[fB] == b_val)]
                         samples[group_label] = subset[dv].tolist()
                 groups = list(samples.keys())
-    
+                # Formel für Two-Way ANOVA (für Annahmenprüfung)
+                formula = f"Value ~ C({fA}) * C({fB})"
+
             else:
                 return {"error": f"Unknown test type: {test}"}
-    
+
+            # Annahmenprüfung mit passender Formel
             transformed_samples, recommendation, test_info = StatisticalTester.check_normality_and_variance(
                 groups, samples, dataset_name=dv,
-                progress_text=f"{test}",  # Add this parameter for consistent dialog caching
-                column_name=dv            # Add this parameter for consistent dialog caching
+                progress_text=f"{test}",
+                column_name=dv,
+                formula=formula
             )
 
             return {
@@ -2347,7 +2239,7 @@ class StatisticalTester:
 
         except Exception as e:
             return {"error": str(e)} 
-    
+        
     @staticmethod
     def perform_advanced_test(
         df, test, dv, subject, between=None, within=None, alpha=0.05,
