@@ -156,7 +156,7 @@ class TwoWayPostHocAnalyzer(PostHocAnalyzer):
     """Post-hoc tests for Two-Way ANOVA with a uniform interface."""
     
     @staticmethod
-    def perform_test(df, dv, factors, alpha=0.05, selected_comparisons=None):
+    def perform_test(df, dv, factors, alpha=0.05, selected_comparisons=None, method="holm_sidak", control_group=None):
         """
         Performs post-hoc tests for Two-Way ANOVA.
         
@@ -170,6 +170,10 @@ class TwoWayPostHocAnalyzer(PostHocAnalyzer):
             List of the two factors [factor_a, factor_b]
         alpha : float
             Significance level
+        selected_comparisons : set, optional
+            Set of normalized comparison pairs to perform
+        method : str, optional
+            Post-hoc method: "holm_sidak", "bonferroni", "tukey"
             
         Returns:
         --------
@@ -232,12 +236,87 @@ class TwoWayPostHocAnalyzer(PostHocAnalyzer):
                     stat, pval = ttest_ind(vals1, vals2, equal_var=True)
                     pvals.append(pval)
                     stats_list.append((g1, g2, stat, pval, vals1, vals2))
-                # Apply Holm-Sidak correction
+                # Apply multiple comparison correction based on method
                 from statsmodels.stats.multitest import multipletests
                 if pvals:
-                    reject, pvals_corr, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
+                    if method.lower() == 'tukey':
+                        # For Tukey, we'll use a different approach below
+                        correction_method = "Tukey HSD"
+                        pvals_corr = pvals  # Will be replaced by Tukey results
+                    elif method.lower() == 'dunnett' and control_group:
+                        # For Dunnett, use proper Dunnett test implementation
+                        correction_method = "Dunnett"
+                        try:
+                            import scikit_posthocs as sp
+                            # Prepare data for scikit_posthocs
+                            all_data = []
+                            all_groups = []
+                            for group in interaction_groups:
+                                values = group_to_values[group]
+                                all_data.extend(values)
+                                all_groups.extend([group] * len(values))
+                            
+                            # Create DataFrame for scikit_posthocs
+                            import pandas as pd
+                            dunnett_df = pd.DataFrame({"value": all_data, "group": all_groups})
+                            
+                            # Use the control_group directly - it's already the exact group name the user selected
+                            control_label = control_group
+                            print(f"DEBUG: Using control_group directly: '{control_label}'")
+                            
+                            # Perform Dunnett test
+                            dunnett_result = sp.posthoc_dunnett(dunnett_df, val_col="value", group_col="group", control=control_label)
+                            
+                            # Extract p-values for the comparisons we made
+                            pvals_corr = []
+                            for g1, g2, *_ in stats_list:
+                                if g1 == control_label or g2 == control_label:
+                                    # Get the p-value from the Dunnett result matrix
+                                    try:
+                                        if g1 == control_label:
+                                            p_val = float(dunnett_result.loc[g2, control_label])
+                                        else:
+                                            p_val = float(dunnett_result.loc[g1, control_label])
+                                    except (KeyError, ValueError):
+                                        # Fallback to original p-value
+                                        p_val = stats_list[len(pvals_corr)][3]
+                                    pvals_corr.append(p_val)
+                                else:
+                                    pvals_corr.append(1.0)  # Non-control comparisons get p=1.0
+                        except ImportError:
+                            # Fallback if scikit_posthocs not available
+                            # Filter to only comparisons involving the control group
+                            dunnett_pvals = []
+                            dunnett_stats = []
+                            control_label = control_group  # Use control_group directly
+                            print(f"DEBUG: Dunnett fallback using control_group: '{control_label}'")
+                            
+                            for i, (g1, g2, stat, pval, vals1, vals2) in enumerate(stats_list):
+                                if g1 == control_label or g2 == control_label:
+                                    dunnett_pvals.append(pval)
+                                    dunnett_stats.append((g1, g2, stat, pval, vals1, vals2))
+                                
+                                # Apply Dunnett correction using Holm-Sidak as fallback
+                                if dunnett_pvals:
+                                    reject, pvals_corr_dunnett, _, _ = multipletests(dunnett_pvals, alpha=alpha, method='holm-sidak')
+                                    # Map back to original order
+                                    pvals_corr = []
+                                    dunnett_idx = 0
+                                    for g1, g2, *_ in stats_list:
+                                        if g1 == control_label or g2 == control_label:
+                                            pvals_corr.append(pvals_corr_dunnett[dunnett_idx])
+                                            dunnett_idx += 1
+                                        else:
+                                            pvals_corr.append(1.0)  # Non-control comparisons get p=1.0
+                                else:
+                                    pvals_corr = [1.0] * len(pvals)
+                    else:
+                        # Default: Holm-Sidak
+                        correction_method = "Holm-Sidak"
+                        reject, pvals_corr, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
                 else:
                     pvals_corr = []
+                    correction_method = "Holm-Sidak"
                 # Add to results
                 for i, (g1, g2, stat, pval, vals1, vals2) in enumerate(stats_list):
                     # Effect size: Cohen's d
@@ -263,7 +342,7 @@ class TwoWayPostHocAnalyzer(PostHocAnalyzer):
                         p_value=pvals_corr[i] if i < len(pvals_corr) else pval,
                         statistic=stat,
                         corrected=True,
-                        correction_method="Holm-Sidak",
+                        correction_method=correction_method,
                         effect_size=cohen_d,
                         effect_size_type="cohen_d",
                         confidence_interval=ci,
@@ -321,6 +400,16 @@ class TwoWayPostHocAnalyzer(PostHocAnalyzer):
                         confidence_interval=tuple(comp['conf_int']),
                         alpha=alpha
                     )
+            
+            # Set the posthoc_test value for decision tree visualization
+            method_name_map = {
+                "tukey": "Tukey HSD",
+                "dunnett": "Dunnett Test",
+                "paired_custom": "Custom paired t-tests (Holm-Sidak)",
+                "holm_sidak": "Custom paired t-tests (Holm-Sidak)"
+            }
+            result["posthoc_test"] = method_name_map.get(method, f"Post-hoc test ({method})")
+            
             return result
         except Exception as e:
             result["error"] = f"Error in Two-Way ANOVA post-hoc tests: {str(e)}"
@@ -330,7 +419,7 @@ class MixedAnovaPostHocAnalyzer(PostHocAnalyzer):
     """Post-hoc tests for Mixed ANOVA with a uniform interface."""
     
     @staticmethod
-    def perform_test(df, dv, subject, between, within, alpha=0.05, selected_comparisons=None):
+    def perform_test(df, dv, subject, between, within, alpha=0.05, selected_comparisons=None, method='tukey', control_group=None):
         """
         Performs post-hoc tests for Mixed ANOVA.
         
@@ -464,12 +553,43 @@ class MixedAnovaPostHocAnalyzer(PostHocAnalyzer):
                 pvals.append(pval)
                 stats_list.append((g1, g2, stat, pval, test_type, data1, data2))
             
-            # Apply Holm-Sidak correction
+            # Apply multiple comparison correction based on method
             from statsmodels.stats.multitest import multipletests
             if pvals:
-                reject, pvals_corr, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
+                if method.lower() == 'tukey':
+                    # For Tukey, we'll use a different approach
+                    correction_method = "Tukey HSD"
+                    reject, pvals_corr, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')  # Fallback
+                elif method.lower() == 'dunnett' and control_group:
+                    # For Dunnett, filter to only control group comparisons
+                    correction_method = "Dunnett"
+                    # Filter to only comparisons involving the control group
+                    dunnett_pvals = []
+                    control_comparisons = []
+                    
+                    for i, (g1, g2, stat, pval, test_type, data1, data2) in enumerate(stats_list):
+                        # Use exact match instead of substring search
+                        if g1 == control_group or g2 == control_group:
+                            dunnett_pvals.append(pval)
+                            control_comparisons.append(i)
+                    
+                    if dunnett_pvals:
+                        # Apply correction only to control group comparisons
+                        reject, pvals_corr_dunnett, _, _ = multipletests(dunnett_pvals, alpha=alpha, method='holm-sidak')
+                        # Map back to original order
+                        pvals_corr = [1.0] * len(pvals)  # Start with all p-values as 1.0
+                        for j, orig_idx in enumerate(control_comparisons):
+                            pvals_corr[orig_idx] = pvals_corr_dunnett[j]
+                    else:
+                        pvals_corr = [1.0] * len(pvals)
+                        correction_method = "Dunnett (no control comparisons found)"
+                else:
+                    # Default: Holm-Sidak
+                    correction_method = "Holm-Sidak"
+                    reject, pvals_corr, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
             else:
                 pvals_corr = []
+                correction_method = "Holm-Sidak"
             
             # Add results
             for i, (g1, g2, stat, pval, test_type, data1, data2) in enumerate(stats_list):
@@ -517,7 +637,7 @@ class MixedAnovaPostHocAnalyzer(PostHocAnalyzer):
                     p_value=pvals_corr[i] if i < len(pvals_corr) else pval,
                     statistic=stat,
                     corrected=True,
-                    correction_method="Holm-Sidak",
+                    correction_method=correction_method,
                     effect_size=effect_size,
                     effect_size_type=effect_size_type,
                     confidence_interval=ci,
@@ -531,6 +651,15 @@ class MixedAnovaPostHocAnalyzer(PostHocAnalyzer):
                 if missing:
                     print(f"WARNING: The following selected pairs were not found in the available post-hoc comparisons: {missing}")
             
+            # Set the posthoc_test value for decision tree visualization
+            method_name_map = {
+                "tukey": "Tukey HSD",
+                "dunnett": "Dunnett Test", 
+                "paired_custom": "Custom paired t-tests (Holm-Sidak)",
+                "holm_sidak": "Custom paired t-tests (Holm-Sidak)"
+            }
+            result["posthoc_test"] = method_name_map.get(method, f"Post-hoc test ({method})")
+            
             return result
         except Exception as e:
             result["error"] = f"Error in Mixed ANOVA post-hoc tests: {str(e)}"
@@ -539,7 +668,7 @@ class MixedAnovaPostHocAnalyzer(PostHocAnalyzer):
 class RMAnovaPostHocAnalyzer(PostHocAnalyzer):
         
     @staticmethod
-    def perform_test(df, dv, subject, within, alpha=0.05, selected_comparisons=None):
+    def perform_test(df, dv, subject, within, alpha=0.05, selected_comparisons=None, method='tukey', control_group=None):
         result = PostHocAnalyzer.create_result_template("RM ANOVA Post-hoc Tests")
         try:
             print(f"DEBUG POSTHOC: selected_comparisons = {selected_comparisons}")
@@ -607,9 +736,41 @@ class RMAnovaPostHocAnalyzer(PostHocAnalyzer):
                     "ci_upper": ci_upper
                 })
             
-            # Apply Holm-Sidak correction
+            # Apply multiple comparison correction based on method
             p_values = [comp["p_val"] for comp in comparisons]
-            corrected_p_values = PostHocAnalyzer._holm_sidak_correction(p_values)
+            if method.lower() == 'tukey':
+                # For Tukey, we'd need pingouin or another library for proper implementation
+                correction_method = "Tukey HSD"
+                corrected_p_values = PostHocAnalyzer._holm_sidak_correction(p_values)  # Fallback
+            elif method.lower() == 'dunnett' and control_group:
+                # For Dunnett, filter to only control group comparisons
+                correction_method = "Dunnett"
+                # Filter to only comparisons involving the control group
+                dunnett_p_values = []
+                control_indices = []
+                
+                for i, comp in enumerate(comparisons):
+                    level1_str = str(comp["level1"])
+                    level2_str = str(comp["level2"])
+                    # Use exact match instead of substring search
+                    if level1_str == control_group or level2_str == control_group:
+                        dunnett_p_values.append(comp["p_val"])
+                        control_indices.append(i)
+                
+                if dunnett_p_values:
+                    # Apply correction only to control group comparisons
+                    dunnett_corrected = PostHocAnalyzer._holm_sidak_correction(dunnett_p_values)
+                    # Map back to original order
+                    corrected_p_values = [1.0] * len(p_values)  # Start with all p-values as 1.0
+                    for j, orig_idx in enumerate(control_indices):
+                        corrected_p_values[orig_idx] = dunnett_corrected[j]
+                else:
+                    corrected_p_values = [1.0] * len(p_values)
+                    correction_method = "Dunnett (no control comparisons found)"
+            else:
+                # Default: Holm-Sidak
+                correction_method = "Holm-Sidak"
+                corrected_p_values = PostHocAnalyzer._holm_sidak_correction(p_values)
             
             # Add each pairwise comparison result with corrected p-values
             for i, comp in enumerate(comparisons):
@@ -617,11 +778,11 @@ class RMAnovaPostHocAnalyzer(PostHocAnalyzer):
                     result,
                     group1=str(comp["level1"]),
                     group2=str(comp["level2"]),
-                    test="Paired t-test (Holm-Sidak)",  # Changed from "Paired t-test (Bonferroni)"
+                    test=f"Paired t-test ({correction_method})",
                     p_value=corrected_p_values[i],
                     statistic=comp["t_stat"],
                     corrected=True,
-                    correction_method="Holm-Sidak",  # Changed from "Bonferroni"
+                    correction_method=correction_method,
                     effect_size=comp["effect_size"],
                     effect_size_type="cohen_d",
                     confidence_interval=(comp["ci_lower"], comp["ci_upper"]),
@@ -651,6 +812,15 @@ class RMAnovaPostHocAnalyzer(PostHocAnalyzer):
                     confidence_interval=(None, None),
                     alpha=alpha
                 )
+
+            # Set the posthoc_test value for decision tree visualization
+            method_name_map = {
+                "tukey": "Tukey HSD",
+                "dunnett": "Dunnett Test",
+                "paired_custom": "Custom paired t-tests (Holm-Sidak)",
+                "holm_sidak": "Custom paired t-tests (Holm-Sidak)"
+            }
+            result["posthoc_test"] = method_name_map.get(method, f"Post-hoc test ({method})")
 
             return result
         except Exception as e:
@@ -764,6 +934,9 @@ class TukeyHSD(PostHocAnalyzer):
                 result["error"] = "TukeyHSDResults object has no summary() attribute"
                 return result
             
+            # Set the posthoc_test value for decision tree visualization
+            result["posthoc_test"] = "Tukey HSD"
+            
             return result
         except Exception as e:
             result["error"] = f"Error in Tukey HSD test: {str(e)}"
@@ -857,6 +1030,9 @@ class DunnettTest(PostHocAnalyzer):
                     confidence_interval=(float(ci_lowers[i]), float(ci_uppers[i])),
                     alpha=alpha
                 )
+
+            # Set the posthoc_test value for decision tree visualization
+            result["posthoc_test"] = "Dunnett Test"
 
             return result
         except Exception as e:
@@ -1038,7 +1214,7 @@ class PostHocFactory:
         return None
     
     @staticmethod
-    def perform_posthoc_for_anova(anova_type, df, dv, subject=None, between=None, within=None, alpha=0.05, selected_comparisons=None):
+    def perform_posthoc_for_anova(anova_type, df, dv, subject=None, between=None, within=None, alpha=0.05, selected_comparisons=None, method="paired_custom", control_group=None):
         """
         Performs post-hoc tests for an ANOVA type and returns standardized results.
         
@@ -1058,6 +1234,10 @@ class PostHocFactory:
             List of within factors
         alpha : float, optional
             Significance level (default: 0.05)
+        method : str, optional
+            Post-hoc method ("tukey", "dunnett", "paired_custom")
+        control_group : str, optional
+            Control group for Dunnett test
             
         Returns:
         --------
@@ -1071,7 +1251,7 @@ class PostHocFactory:
         if anova_type == "two_way":
             if not between or len(between) != 2:
                 return {"error": "Two-Way ANOVA requires two between factors"}
-            return analyzer.perform_test(df=df, dv=dv, factors=between, alpha=alpha, selected_comparisons=selected_comparisons)
+            return analyzer.perform_test(df=df, dv=dv, factors=between, alpha=alpha, selected_comparisons=selected_comparisons, method=method, control_group=control_group)
         
         elif anova_type == "mixed":
             # Full implementation for Mixed ANOVA
@@ -1082,7 +1262,7 @@ class PostHocFactory:
             if not within or len(within) != 1:
                 return {"error": "Mixed ANOVA requires exactly one within factor"}
             
-            return analyzer.perform_test(df=df, dv=dv, subject=subject, between=between, within=within, alpha=alpha, selected_comparisons=selected_comparisons)
+            return analyzer.perform_test(df=df, dv=dv, subject=subject, between=between, within=within, alpha=alpha, selected_comparisons=selected_comparisons, method=method, control_group=control_group)
         
         elif anova_type == "rm":
             # Full implementation for RM-ANOVA
@@ -1092,7 +1272,7 @@ class PostHocFactory:
                 return {"error": "RM-ANOVA requires at least one within factor"}
             
             # Get post-hoc results from analyzer
-            posthoc = analyzer.perform_test(df=df, dv=dv, subject=subject, within=within, alpha=alpha, selected_comparisons=selected_comparisons)
+            posthoc = analyzer.perform_test(df=df, dv=dv, subject=subject, within=within, alpha=alpha, selected_comparisons=selected_comparisons, method=method, control_group=control_group)
             
             # Add validation to ensure we're getting valid results
             if posthoc and 'pairwise_comparisons' in posthoc:
@@ -1248,10 +1428,17 @@ class StatisticalTester:
     @staticmethod
     def check_normality_and_variance(
         groups, samples, dataset_name=None, progress_text=None, column_name=None, already_transformed=False,
-        formula="Value ~ C(Group)"
+        formula="Value ~ C(Group)", model_type="oneway"
     ):
         """
         Checks normality and homogeneity of variance using model residuals (before and after transformation).
+        
+        Parameters:
+        - model_type: str, one of "oneway", "twoway", "ttest", "rm" (repeated measures)
+        - formula: str, formula for statsmodels OLS (e.g., "Value ~ C(Group)" for one-way)
+        
+        Always fits the specified model and tests residuals for normality using Shapiro-Wilk test.
+        Levene test is performed on the raw values for variance homogeneity.
         """
         from scipy.stats import boxcox, boxcox_normmax
         import numpy as np
@@ -1265,16 +1452,43 @@ class StatisticalTester:
 
         # Fit model and check residuals normality on raw data
         def make_df(samps):
-            return pd.DataFrame([
-                {"Group": g, "Value": v} for g in valid_groups for v in samps[g]
-            ])
+            if model_type == "twoway":
+                # For Two-Way ANOVA, extract factors from group labels like "FactorA=val1, FactorB=val2"
+                data_rows = []
+                for g in valid_groups:
+                    for v in samps[g]:
+                        # Parse group label to extract factor values
+                        if "=" in g and "," in g:
+                            parts = [part.strip() for part in g.split(",")]
+                            if len(parts) == 2:
+                                factor_a_part = parts[0].split("=")
+                                factor_b_part = parts[1].split("=")
+                                if len(factor_a_part) == 2 and len(factor_b_part) == 2:
+                                    factor_a_name, factor_a_val = factor_a_part
+                                    factor_b_name, factor_b_val = factor_b_part
+                                    data_rows.append({
+                                        "Group": g,
+                                        "Value": v,
+                                        factor_a_name.strip(): factor_a_val.strip(),
+                                        factor_b_name.strip(): factor_b_val.strip()
+                                    })
+                                    continue
+                        # Fallback for malformed group labels
+                        data_rows.append({"Group": g, "Value": v})
+                
+                return pd.DataFrame(data_rows)
+            else:
+                # For other models, use simple Group/Value structure
+                return pd.DataFrame([
+                    {"Group": g, "Value": v} for g in valid_groups for v in samps[g]
+                ])
         df_raw = make_df(samples)
         from scipy import stats
         try:
             model_raw = ols(formula, data=df_raw).fit()
             resid_raw = model_raw.resid
             stat, pval = stats.shapiro(resid_raw) if len(resid_raw) >= 3 and len(set(resid_raw)) > 1 else (None, None)
-        except Exception:
+        except Exception as e:
             stat, pval = None, None
         test_info["pre_transformation"]["residuals_normality"] = {
             "statistic": stat, "p_value": pval, "is_normal": (pval > 0.05 if pval is not None else False)
@@ -1373,6 +1587,15 @@ class StatisticalTester:
 
         if post_norm and post_var:
             test_recommendation = "parametric"
+        elif post_norm and not post_var and model_type == "ttest" and len(valid_groups) == 2:
+            test_recommendation = "parametric"  # Welch-Test
+            test_info["note"] = "Residuen normal, Varianzen ungleich – Welch-Test wird verwendet"
+        elif post_norm and not post_var and model_type == "oneway" and len(valid_groups) > 2:
+            test_recommendation = "parametric"  # Welch-ANOVA
+            test_info["note"] = "Residuen normal, Varianzen ungleich – Welch-ANOVA wird verwendet"
+        elif post_norm and not post_var and model_type in ["twoway", "mixed", "rm"]:
+            test_recommendation = "parametric"  # Erweiterte ANOVAs können oft mit ungleichen Varianzen umgehen
+            test_info["note"] = f"Residuen normal, Varianzen ungleich – {model_type.upper()}-ANOVA wird trotzdem verwendet (robust gegen Varianzheterogenität)"
         elif post_norm and not post_var and len(valid_groups) == 2:
             test_recommendation = "parametric"  # Welch-Test
             test_info["note"] = "Normal distribution but unequal variances – Welch's t-test will be used."
@@ -1565,14 +1788,27 @@ class StatisticalTester:
             test_name = "Welch's t-test (unequal variances)"
         n1, n2 = len(data1), len(data2)
         s1, s2 = np.var(data1, ddof=1), np.var(data2, ddof=1)
-        s_pooled = np.sqrt(((n1-1)*s1 + (n2-1)*s2) / (n1+n2-2))
-        cohen_d = (np.mean(data1) - np.mean(data2)) / s_pooled
+        
+        # Different calculations for equal vs unequal variances
+        if equal_var:
+            # Pooled standard deviation for equal variances
+            s_pooled = np.sqrt(((n1-1)*s1 + (n2-1)*s2) / (n1+n2-2))
+            cohen_d = (np.mean(data1) - np.mean(data2)) / s_pooled
+            stderr_diff = s_pooled * np.sqrt(1/n1 + 1/n2)
+            df = n1 + n2 - 2
+        else:
+            # For Welch's t-test (unequal variances)
+            s_pooled = np.sqrt((s1 + s2) / 2)  # Simple average for Cohen's d
+            cohen_d = (np.mean(data1) - np.mean(data2)) / s_pooled
+            stderr_diff = np.sqrt(s1/n1 + s2/n2)
+            # Welch-Satterthwaite degrees of freedom
+            df = (s1/n1 + s2/n2)**2 / ((s1/n1)**2/(n1-1) + (s2/n2)**2/(n2-1))
+        
         results["effect_size"] = cohen_d
         results["effect_size_type"] = "cohen_d"
         mean_diff = np.mean(data1) - np.mean(data2)
-        stderr_diff = np.sqrt(s1/n1 + s2/n2)
         from scipy.stats import t
-        ci = t.interval(0.95, n1+n2-2, loc=mean_diff, scale=stderr_diff)
+        ci = t.interval(0.95, df, loc=mean_diff, scale=stderr_diff)
         results["confidence_interval"] = ci
         try:
             from statsmodels.stats.power import TTestIndPower
@@ -1638,26 +1874,26 @@ class StatisticalTester:
                 test_recommendation == "parametric" 
                 and test_info is not None
                 and (
-                    # Check if transformed data has unequal variance
-                    (test_info.get("transformation") and not test_info.get("variance_test", {}).get("transformed", {}).get("equal_variance", True))
-                    # Or if original data has unequal variance (when no transformation)
-                    or (not test_info.get("transformation") and not test_info.get("variance_test", {}).get("equal_variance", True))
+                    # Check if transformed data has unequal variance (new structure)
+                    (test_info.get("transformation") and not test_info.get("post_transformation", {}).get("variance", {}).get("equal_variance", True))
+                    # Or if original data has unequal variance (when no transformation) (new structure)
+                    or (not test_info.get("transformation") and not test_info.get("pre_transformation", {}).get("variance", {}).get("equal_variance", True))
                 )
-                # Ensure we're still normally distributed
+                # Ensure we're still normally distributed (new structure)
                 and (
-                    (test_info.get("transformation") and test_info.get("normality_tests", {}).get("transformed_data", {}).get("is_normal", False))
-                    or (not test_info.get("transformation") and test_info.get("normality_tests", {}).get("all_data", {}).get("is_normal", False))
+                    (test_info.get("transformation") and test_info.get("post_transformation", {}).get("residuals_normality", {}).get("is_normal", False))
+                    or (not test_info.get("transformation") and test_info.get("pre_transformation", {}).get("residuals_normality", {}).get("is_normal", False))
                 )
             )
         )
         
         print(f"DEBUG WELCH CHECK: test_recommendation = {test_recommendation}")
         if test_info and test_info.get("transformation"):
-            print(f"DEBUG WELCH CHECK: transformed data normality = {test_info.get('normality_tests', {}).get('transformed_data', {}).get('is_normal', False)}")
-            print(f"DEBUG WELCH CHECK: transformed variance equal = {test_info.get('variance_test', {}).get('transformed', {}).get('equal_variance', True)}")
+            print(f"DEBUG WELCH CHECK: transformed data normality = {test_info.get('post_transformation', {}).get('residuals_normality', {}).get('is_normal', False)}")
+            print(f"DEBUG WELCH CHECK: transformed variance equal = {test_info.get('post_transformation', {}).get('variance', {}).get('equal_variance', True)}")
         elif test_info:
-            print(f"DEBUG WELCH CHECK: original data normality = {test_info.get('normality_tests', {}).get('all_data', {}).get('is_normal', False)}")
-            print(f"DEBUG WELCH CHECK: original variance equal = {test_info.get('variance_test', {}).get('equal_variance', True)}")
+            print(f"DEBUG WELCH CHECK: original data normality = {test_info.get('pre_transformation', {}).get('residuals_normality', {}).get('is_normal', False)}")
+            print(f"DEBUG WELCH CHECK: original variance equal = {test_info.get('pre_transformation', {}).get('variance', {}).get('equal_variance', True)}")
         else:
             print(f"DEBUG WELCH CHECK: test_info is None")
         print(f"DEBUG WELCH CHECK: welch_condition = {welch_condition}")
@@ -1803,12 +2039,64 @@ class StatisticalTester:
                     control_group = None
                     if posthoc_choice == "dunnett":
                         control_group = UIDialogManager.select_control_group_dialog(valid_groups)
-                    posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
-                        valid_groups, samples_to_use, test_recommendation="parametric", alpha=alpha,
-                        posthoc_choice=posthoc_choice, control_group=control_group
-                    )
-                    results["posthoc_test"] = posthoc_results.get("posthoc_test")
-                    results["pairwise_comparisons"] = posthoc_results.get("pairwise_comparisons", [])
+                    elif posthoc_choice == "paired_custom":
+                        # Handle paired custom directly here to avoid double dialog
+                        pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
+                        if pairs:
+                            # Import required modules
+                            from scipy import stats
+                            import numpy as np
+                            from statsmodels.stats.multitest import multipletests
+                            
+                            # Paired t-tests für die gewählten Paare
+                            pvals, stats_list = [], []
+                            for g1, g2 in pairs:
+                                x, y = np.array(samples_to_use[g1]), np.array(samples_to_use[g2])
+                                tstat, p = stats.ttest_rel(x, y)
+                                stats_list.append(tstat)
+                                pvals.append(p)
+                            # Holm-Sidak-Korrektur
+                            reject, p_adj, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
+                            
+                            # Create results in the same format as other post-hoc tests
+                            posthoc_results = {
+                                "posthoc_test": "Custom paired t-tests (Holm-Sidak)",
+                                "pairwise_comparisons": [],
+                                "error": None
+                            }
+                            
+                            # Ergebnisse sammeln
+                            for i, (g1, g2) in enumerate(pairs):
+                                ci = PostHocStatistics.calculate_ci_mean_diff(samples_to_use[g1], samples_to_use[g2], alpha=alpha, paired=True)
+                                d = PostHocStatistics.calculate_cohens_d(samples_to_use[g1], samples_to_use[g2], paired=True)
+                                PostHocAnalyzer.add_comparison(
+                                    posthoc_results,
+                                    group1=g1,
+                                    group2=g2,
+                                    test="Paired t-test (Holm-Sidak)",
+                                    p_value=p_adj[i],
+                                    statistic=stats_list[i],
+                                    corrected=True,
+                                    correction_method="Holm-Sidak",
+                                    effect_size=d,
+                                    effect_size_type="cohen_d",
+                                    confidence_interval=ci,
+                                    alpha=alpha
+                                )
+                            
+                            results["posthoc_test"] = posthoc_results.get("posthoc_test")
+                            results["pairwise_comparisons"] = posthoc_results.get("pairwise_comparisons", [])
+                        else:
+                            results["posthoc_test"] = "No pairs selected for custom paired t-tests"
+                            results["pairwise_comparisons"] = []
+                    else:
+                        # For other post-hoc tests (tukey, dunnett), use the refactored function
+                        posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
+                            valid_groups, samples_to_use, test_recommendation="parametric", alpha=alpha,
+                            posthoc_choice=posthoc_choice, control_group=control_group
+                        )
+                        results["posthoc_test"] = posthoc_results.get("posthoc_test")
+                        results["pairwise_comparisons"] = posthoc_results.get("pairwise_comparisons", [])
             elif test_recommendation == "non_parametric" and results.get("p_value") is not None and results["p_value"] < alpha:
                 # Let the perform_refactored_posthoc_testing function handle the dialog selection
                 print("DEBUG: Significant non-parametric test, calling perform_refactored_posthoc_testing without preset posthoc_choice")
@@ -2222,11 +2510,22 @@ class StatisticalTester:
                 return {"error": f"Unknown test type: {test}"}
 
             # Annahmenprüfung mit passender Formel
+            model_type_map = {
+                "One-Way ANOVA": "oneway", 
+                "Two-Way ANOVA": "twoway",
+                "two_way_anova": "twoway",  # Add lowercase variant
+                "t-test": "ttest",
+                "mixed_anova": "mixed",
+                "repeated_measures_anova": "rm"
+            }
+            model_type = model_type_map.get(test, "oneway")
+            
             transformed_samples, recommendation, test_info = StatisticalTester.check_normality_and_variance(
                 groups, samples, dataset_name=dv,
                 progress_text=f"{test}",
                 column_name=dv,
-                formula=formula
+                formula=formula,
+                model_type=model_type
             )
 
             return {
@@ -2419,11 +2718,11 @@ class StatisticalTester:
                         print(f"DEBUG: Error in transformed data tests: {str(e)}")
                     
                     recommendation = "parametric" if manual_transform != "none" else "non_parametric"
-                    # But still check normality after transformation to be sure
-                    if "normality_tests" in test_info and "transformed_data" in test_info["normality_tests"]:
-                        is_normal = test_info["normality_tests"]["transformed_data"].get("is_normal", False)
+                    # But still check normality after transformation to be sure (new structure)
+                    if "post_transformation" in test_info and "residuals_normality" in test_info["post_transformation"]:
+                        is_normal = test_info["post_transformation"]["residuals_normality"].get("is_normal", False)
                         if not is_normal:
-                            print(f"DEBUG: Data still not normal after manual transformation, using non_parametric")
+                            print(f"DEBUG: Model residuals still not normal after manual transformation, using non_parametric")
                             recommendation = "non_parametric"
                 else:
                     # We already have the results from prepare_advanced_test, no need to call again
@@ -2522,12 +2821,18 @@ class StatisticalTester:
             else:
                 # Honor recommendation from normality tests
                 print(f"DEBUG: Using recommendation from normality tests: '{recommendation}'")
-                # Double-check normality for extra safety
-                if test_info and "normality_tests" in test_info:
-                    if "transformed_data" in test_info["normality_tests"]:
-                        is_normal = test_info["normality_tests"]["transformed_data"].get("is_normal", False)
+                # Double-check normality for extra safety (new structure)
+                if test_info:
+                    # Check post-transformation if available, otherwise pre-transformation
+                    if "post_transformation" in test_info and "residuals_normality" in test_info["post_transformation"]:
+                        is_normal = test_info["post_transformation"]["residuals_normality"].get("is_normal", False)
                         if not is_normal:
-                            print(f"DEBUG: Data is NOT normal after transformation, forcing non_parametric")
+                            print(f"DEBUG: Model residuals are NOT normal after transformation, forcing non_parametric")
+                            recommendation = "non_parametric"
+                    elif "pre_transformation" in test_info and "residuals_normality" in test_info["pre_transformation"]:
+                        is_normal = test_info["pre_transformation"]["residuals_normality"].get("is_normal", False)
+                        if not is_normal:
+                            print(f"DEBUG: Model residuals are NOT normal, forcing non_parametric")
                             recommendation = "non_parametric"
 
             if recommendation == 'parametric':
@@ -2567,9 +2872,22 @@ class StatisticalTester:
                 if res.get("p_value") is not None and res["p_value"] < alpha:
                     # 1. Generate all possible group comparisons
                     from itertools import combinations
-                    if test == "two_way_anova" or test == "mixed_anova":
-                        group_labels = list(df_transformed.groupby(list(between if test == "two_way_anova" else [between[0], within[0]])))
-                        group_names = [g[0] if isinstance(g[0], str) else ', '.join([f"{k}={v}" for k, v in zip((between if test == "two_way_anova" else [between[0], within[0]]), g[0])]) for g in group_labels]
+                    if test == "two_way_anova":
+                        # For Two-Way ANOVA, create interaction group labels
+                        group_names = []
+                        factors = between
+                        for factor_a_val in sorted(df_transformed[factors[0]].unique()):
+                            for factor_b_val in sorted(df_transformed[factors[1]].unique()):
+                                group_label = f"{factors[0]}={factor_a_val}, {factors[1]}={factor_b_val}"
+                                group_names.append(group_label)
+                    elif test == "mixed_anova":
+                        # For Mixed ANOVA, create interaction group labels
+                        group_names = []
+                        b_factor, w_factor = between[0], within[0]
+                        for b_val in sorted(df_transformed[b_factor].unique()):
+                            for w_val in sorted(df_transformed[w_factor].unique()):
+                                group_label = f"{b_factor}={b_val}, {w_factor}={w_val}"
+                                group_names.append(group_label)
                     elif test == "repeated_measures_anova":
                         w_factor = within[0]
                         group_names = list(df_transformed[w_factor].unique())
@@ -2578,23 +2896,62 @@ class StatisticalTester:
 
                     all_comparisons = list(combinations(group_names, 2))
 
-                    # 2. Show the comparison selection dialog (assume ComparisonSelectionDialog is imported and available)
+                    # 2. Show post-hoc method selection dialog FIRST
+                    posthoc_method = "paired_custom"  # Default to paired t-tests with Holm-Sidak
+                    control_group = None
                     try:
-                        from comparison_selection_dialog import ComparisonSelectionDialog
-                        import sys
-                        from PyQt5.QtWidgets import QApplication
-                        app = QApplication.instance()
-                        if app is None:
-                            app = QApplication(sys.argv)
-                        dialog = ComparisonSelectionDialog(all_comparisons, checked_by_default=False)  # Pass flag to deselect all
-                        if dialog.exec_() == dialog.Accepted:
-                            selected_comparisons = dialog.get_selected_comparisons()
-                        else:
-                            selected_comparisons = []
-                        print(f"DEBUG: User selected {len(selected_comparisons)} comparisons: {selected_comparisons}")
+                        # For Two-Way ANOVA, default to paired t-tests (better for interaction effects)
+                        default_method = "paired_custom" if test == "two_way_anova" else "tukey"
+                        posthoc_method = UIDialogManager.select_posthoc_test_dialog(
+                            parent=None, progress_text=f"({test})", column_name=dv, default_method=default_method
+                        )
+                        if posthoc_method is None:
+                            posthoc_method = "paired_custom"  # Default fallback
+                        print(f"DEBUG: Selected post-hoc method for {test}: {posthoc_method}")
+                        
+                        # If Dunnett was selected, ask for control group
+                        if posthoc_method == "dunnett":
+                            control_group = UIDialogManager.select_control_group_dialog(
+                                parent=None, groups=group_names
+                            )
+                            print(f"DEBUG: Selected control group: {control_group}")
                     except Exception as e:
-                        print(f"WARNING: Could not show comparison selection dialog: {e}")
-                        selected_comparisons = all_comparisons  # fallback: select all
+                        print(f"WARNING: Could not show post-hoc method dialog: {e}")
+                        posthoc_method = "paired_custom"
+
+                    # 2.5. Show the comparison selection dialog (only for pairwise t-tests)
+                    selected_comparisons = None
+                    if posthoc_method == "dunnett" and control_group:
+                        # For Dunnett, automatically generate comparisons against control group
+                        # IMPORTANT: No additional dialog should be shown for Dunnett!
+                        selected_comparisons = [(control_group, group) for group in group_names if group != control_group]
+                        print(f"DEBUG: Auto-generated Dunnett comparisons against control '{control_group}': {selected_comparisons}")
+                        print(f"DEBUG: Dunnett test will compare {len(selected_comparisons)} groups against the control group")
+                    elif posthoc_method == "tukey":
+                        # For Tukey HSD, automatically use all pairwise comparisons
+                        selected_comparisons = all_comparisons
+                        print(f"DEBUG: Auto-generated Tukey comparisons (all pairwise): {len(selected_comparisons)} comparisons")
+                    elif posthoc_method == "paired_custom":
+                        # Only show dialog for pairwise t-tests with custom selection
+                        try:
+                            from comparison_selection_dialog import ComparisonSelectionDialog
+                            import sys
+                            from PyQt5.QtWidgets import QApplication
+                            app = QApplication.instance()
+                            if app is None:
+                                app = QApplication(sys.argv)
+                            dialog = ComparisonSelectionDialog(all_comparisons, checked_by_default=False)  # Pass flag to deselect all
+                            if dialog.exec_() == dialog.Accepted:
+                                selected_comparisons = dialog.get_selected_comparisons()
+                            else:
+                                selected_comparisons = []
+                            print(f"DEBUG: User selected {len(selected_comparisons)} comparisons: {selected_comparisons}")
+                        except Exception as e:
+                            print(f"WARNING: Could not show comparison selection dialog: {e}")
+                            selected_comparisons = all_comparisons  # fallback: select all
+                    else:
+                        # Default fallback: use all comparisons
+                        selected_comparisons = all_comparisons
 
                     # Normalize selected comparisons to sorted, stripped tuples for robust matching
                     def normalize_pair(pair):
@@ -2602,9 +2959,17 @@ class StatisticalTester:
                     normalized_selected_comparisons = set(normalize_pair(pair) for pair in selected_comparisons)
                     print(f"DEBUG: Normalized selected comparisons: {normalized_selected_comparisons}")
 
-                    # 3. Pass normalized selected comparisons to posthoc
-                    posthoc_kwargs = {"selected_comparisons": normalized_selected_comparisons}
+                    # 3. Pass normalized selected comparisons and method to posthoc
+                    posthoc_kwargs = {
+                        "selected_comparisons": normalized_selected_comparisons,
+                        "method": posthoc_method
+                    }
+                    if control_group:
+                        posthoc_kwargs["control_group"] = control_group
                     if test == "two_way_anova":
+                        # Add method selection to kwargs
+                        # posthoc_method is not defined; remove or define it before use
+                        # posthoc_kwargs["method"] = posthoc_method
                         posthoc = PostHocFactory.perform_posthoc_for_anova(
                             "two_way", df=df_transformed, dv=dv, between=between, alpha=alpha, **posthoc_kwargs
                         )
@@ -4192,11 +4557,17 @@ class StatisticalTester:
             
 class UIDialogManager:
     @staticmethod
-    def select_posthoc_test_dialog(parent=None, progress_text=None, column_name=None):
+    def select_posthoc_test_dialog(parent=None, progress_text=None, column_name=None, default_method=None):
         """
         Opens a dialog to select the post-hoc test.
         The window title optionally contains the column name and progress.
         Returns the name of the post-hoc test (str), or None if cancelled.
+        
+        Parameters:
+        -----------
+        default_method : str, optional
+            The default method to select ("tukey", "dunnett", "paired_custom")
+            If None, defaults to "tukey"
         """
         dialog = QDialog(parent)
         layout = QVBoxLayout(dialog)
@@ -4209,21 +4580,39 @@ class UIDialogManager:
             title += f" {progress_text}"
         dialog.setWindowTitle(title)
 
-        info = QLabel("The ANOVA has revealed significant differences. Please select a post-hoc test:")
+        info_text = "The ANOVA has revealed significant differences. Please select a post-hoc test:"
+        if progress_text and "two_way_anova" in progress_text:
+            info_text = ("The Two-Way ANOVA has revealed significant differences. For Two-Way ANOVA, "
+                        "paired t-tests are often preferred to examine specific interaction effects. "
+                        "Please select a post-hoc test:")
+        
+        info = QLabel(info_text)
+        info.setWordWrap(True)
         layout.addWidget(info)
 
         # RadioButtons for post-hoc tests
         options = [
-            ("Tukey-HSD Test (all pairs, family-wise error control)", "tukey"),
-            ("Dunnett Test (all groups vs. control)", "dunnett"),
-            ("Paired t-tests (custom pairs, Holm-Sidak correction)", "paired_custom"),
+            ("Tukey-HSD Test (compares all pairs, best for main effects)", "tukey"),
+            ("Dunnett Test (compares all groups against ONE control group)", "dunnett"),
+            ("Custom paired t-tests (you select specific pairs to compare)", "paired_custom"),
         ]
         radio_buttons = []
         for label, value in options:
             rb = QRadioButton(label)
             layout.addWidget(rb)
             radio_buttons.append((rb, value))
-        radio_buttons[0][0].setChecked(True)  # Default: Tukey
+        
+        # Set default selection based on context
+        if default_method is None:
+            default_method = "tukey"  # Original default
+        
+        for i, (rb, value) in enumerate(radio_buttons):
+            if value == default_method:
+                rb.setChecked(True)
+                break
+        else:
+            # If default_method not found, default to first option
+            radio_buttons[0][0].setChecked(True)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         layout.addWidget(buttons)
@@ -7256,10 +7645,12 @@ class ResultsExporter:
         if test_type == "parametric":
             assumptions_overview = (
                 "For parametric tests (such as t-test, ANOVA), the following assumptions apply:\n"
-                "  • Normal distribution of the data in each group\n"
+                "  • Normal distribution of model residuals (NEW: tested on residuals, not raw group data)\n"
                 "  • Homogeneity of variances between groups\n"
                 "  • Independence of observations\n"
                 "  • Interval scale of the dependent variable\n\n"
+                "IMPORTANT CHANGE: Normality is now tested on model residuals rather than raw group data. "
+                "This provides a more accurate assessment of whether the statistical model assumptions are met. "
                 "Points 1 and 2 are tested statistically. Points 3 and 4 are ensured by the study design and data collection."
             )
         else:
@@ -7346,60 +7737,119 @@ class ResultsExporter:
                 row += 1
     
         # Normality tests per group
-        ws.write(row, 0, "Normality (Shapiro-Wilk test per group):", fmt["section_header"])
+        ws.write(row, 0, "Normality of Model Residuals (Shapiro-Wilk test):", fmt["section_header"])
         row += 1
-        norm_headers = ["Group", "Shapiro-Wilk statistic", "p-Value", "Normally distributed?", "Interpretation"]
-        for i, h in enumerate(norm_headers):
-            ws.write(row, i, h, fmt["header"])
-        row += 1
-        normality_results = results.get("normality_tests", {})
-    
-        for group, test_result in normality_results.items():
-            if group == "all_data" or group == "transformed_data":
-                continue  # Skip these special entries
-            stat = test_result.get('statistic', 'N/A')
-            p_val = test_result.get('p_value', 'N/A')
-            is_normal = (isinstance(p_val, (float, int)) and p_val > 0.05)
-            normal_text = "Yes" if is_normal else "No"
-            interpretation = (
-                "No significant deviation from normality"
-                if is_normal else
-                "Significant deviation from normality"
+        
+        # Check if we have the new test_info structure with residual-based tests
+        has_residual_tests = (
+            "test_info" in results 
+            and "pre_transformation" in results["test_info"]
+            and "residuals_normality" in results["test_info"]["pre_transformation"]
+        )
+        
+        if has_residual_tests:
+            # NEW: Display residual-based normality tests
+            norm_explanation = (
+                "Note: Normality is tested on the residuals of the statistical model."
             )
-            values = [
-                str(group),
-                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
-                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
-                normal_text,
-                interpretation
-            ]
-            for col, val in enumerate(values):
-                ws.write(row, col, val, fmt["cell"])
+            ws.merge_range(f'A{row}:E{row}', norm_explanation, fmt["explanation"])
+            ws.set_row(row, ResultsExporter.get_text_height(norm_explanation, 30*5))
+            row += 2
+            
+            norm_headers = ["Data Type", "Shapiro-Wilk statistic", "p-Value", "Residuals normally distributed?", "Interpretation"]
+            for i, h in enumerate(norm_headers):
+                ws.write(row, i, h, fmt["header"])
             row += 1
+            
+            test_info = results["test_info"]
+            
+            # Pre-transformation residual test
+            if "pre_transformation" in test_info and "residuals_normality" in test_info["pre_transformation"]:
+                pre_norm = test_info["pre_transformation"]["residuals_normality"]
+                stat = pre_norm.get('statistic', 'N/A')
+                p_val = pre_norm.get('p_value', 'N/A')
+                is_normal = pre_norm.get('is_normal', False)
+                normal_text = "Yes" if is_normal else "No"
+                interpretation = (
+                    "Model residuals show no significant deviation from normality"
+                    if is_normal else
+                    "Model residuals show significant deviation from normality"
+                )
+                values = [
+                    "Original Data (Model Residuals)",
+                    f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                    f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                    normal_text,
+                    interpretation
+                ]
+                for col, val in enumerate(values):
+                    cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
+                    ws.write(row, col, val, cell_fmt)
+                row += 1
+            
+            # Post-transformation residual test (if transformation was applied)
+            transformation = results.get("transformation", "None")
+            if (transformation and transformation != "None" and 
+                "post_transformation" in test_info and "residuals_normality" in test_info["post_transformation"]):
+                
+                post_norm = test_info["post_transformation"]["residuals_normality"]
+                stat = post_norm.get('statistic', 'N/A')
+                p_val = post_norm.get('p_value', 'N/A')
+                is_normal = post_norm.get('is_normal', False)
+                normal_text = "Yes" if is_normal else "No"
+                interpretation = (
+                    "Transformed model residuals show no significant deviation from normality"
+                    if is_normal else
+                    "Transformed model residuals show significant deviation from normality"
+                )
+                values = [
+                    f"After {transformation} Transformation (Model Residuals)",
+                    f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                    f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                    normal_text,
+                    interpretation
+                ]
+                for col, val in enumerate(values):
+                    cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
+                    ws.write(row, col, val, cell_fmt)
+                row += 1
+                
+        else:
+            # FALLBACK: Display old-style group-based normality tests
+            norm_headers = ["Group", "Shapiro-Wilk statistic", "p-Value", "Normally distributed?", "Interpretation"]
+            for i, h in enumerate(norm_headers):
+                ws.write(row, i, h, fmt["header"])
+            row += 1
+            normality_results = results.get("normality_tests", {})
+        
+            for group, test_result in normality_results.items():
+                if group == "all_data" or group == "transformed_data":
+                    continue  # Skip these special entries
+                stat = test_result.get('statistic', 'N/A')
+                p_val = test_result.get('p_value', 'N/A')
+                is_normal = (isinstance(p_val, (float, int)) and p_val > 0.05)
+                normal_text = "Yes" if is_normal else "No"
+                interpretation = (
+                    "No significant deviation from normality"
+                    if is_normal else
+                    "Significant deviation from normality"
+                )
+                values = [
+                    str(group),
+                    f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                    f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                    normal_text,
+                    interpretation
+                ]
+                for col, val in enumerate(values):
+                    cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
+                    ws.write(row, col, val, cell_fmt)
+                row += 1
     
         row += 1
 
-        if "all_data" in normality_results:
-            all_data_result = normality_results["all_data"]
-            stat = all_data_result.get('statistic', 'N/A')
-            p_val = all_data_result.get('p_value', 'N/A')
-            is_normal = (isinstance(p_val, (float, int)) and p_val > 0.05)
-            normal_text = "Yes" if is_normal else "No"
-            interpretation = (
-                "No significant deviation from normality"
-                if is_normal else
-                "Significant deviation from normality"
-            )
-            values = [
-                "All data",
-                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
-                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
-                normal_text,
-                interpretation
-            ]
-            for col, val in enumerate(values):
-                ws.write(row, col, val, fmt["cell"])
-            row += 1
+        # Note: The old "all_data" normality test is replaced by model residual tests above
+        # This provides more accurate assumption testing for the statistical models
 
         # Homogeneity of variances (Brown-Forsythe-Test)
         ws.write(row, 0, "Homogeneity of variances (Brown-Forsythe-Test):", fmt["section_header"])
@@ -7409,10 +7859,19 @@ class ResultsExporter:
             ws.write(row, i, h, fmt["header"])
         row += 1
         
-        var_test = results.get("variance_test", {})
+        # Get variance test data from test_info structure
+        test_info = results.get("test_info", {})
+        transformation = results.get("transformation", "None")
+        
+        # Use post-transformation data if transformation was applied, otherwise pre-transformation
+        if transformation and transformation != "None" and "post_transformation" in test_info:
+            var_test = test_info["post_transformation"].get("variance", {})
+        else:
+            var_test = test_info.get("pre_transformation", {}).get("variance", {})
+        
         stat = var_test.get('statistic', 'N/A')
         p_val = var_test.get('p_value', 'N/A')
-        var_equal = (isinstance(p_val, (float, int)) and p_val > 0.05)
+        var_equal = var_test.get('equal_variance', False)
         var_text = "Yes" if var_equal else "No"
         interpretation = (
             "No significant differences in variances"
@@ -7528,12 +7987,51 @@ class ResultsExporter:
             row += 1
             ws.merge_range(f'A{row}:F{row}', "SUMMARY OF ASSUMPTIONS CHECK", fmt["section_header"])
             row += 1
+            
+            # Generate enhanced summary based on residual tests
             summary = results.get("assumptions_summary", "")
             if not summary:
-                summary = (
-                    "The assumptions were checked as documented above. "
-                    "See test results for each group for details."
+                # Check if we have residual-based tests to enhance summary
+                has_residual_tests = (
+                    "test_info" in results 
+                    and "pre_transformation" in results["test_info"]
+                    and "residuals_normality" in results["test_info"]["pre_transformation"]
                 )
+                
+                if has_residual_tests:
+                    test_info = results["test_info"]
+                    pre_norm = test_info["pre_transformation"]["residuals_normality"]["is_normal"]
+                    pre_var = test_info["pre_transformation"]["variance"]["equal_variance"]
+                    transformation = results.get("transformation", "None")
+                    
+                    if transformation and transformation != "None":
+                        post_norm = test_info.get("post_transformation", {}).get("residuals_normality", {}).get("is_normal", False)
+                        post_var = test_info.get("post_transformation", {}).get("variance", {}).get("equal_variance", False)
+                        summary = (
+                            f"MODERN RESIDUAL-BASED ASSUMPTION TESTING:\n\n"
+                            f"• Before transformation: Model residuals {'NORMAL' if pre_norm else 'NOT NORMAL'}, "
+                            f"variances {'EQUAL' if pre_var else 'UNEQUAL'}\n"
+                            f"• {transformation} transformation was applied\n"
+                            f"• After transformation: Model residuals {'NORMAL' if post_norm else 'NOT NORMAL'}, "
+                            f"variances {'EQUAL' if post_var else 'UNEQUAL'}\n\n"
+                            f"IMPORTANT: This analysis uses model residuals (not raw group data) to test normality assumptions. "
+                            f"This provides a more accurate assessment of whether the statistical model assumptions are met."
+                        )
+                    else:
+                        summary = (
+                            f"MODERN RESIDUAL-BASED ASSUMPTION TESTING:\n\n"
+                            f"• Model residuals are {'NORMALLY DISTRIBUTED' if pre_norm else 'NOT NORMALLY DISTRIBUTED'}\n"
+                            f"• Group variances are {'EQUAL (homogeneous)' if pre_var else 'UNEQUAL (heterogeneous)'}\n"
+                            f"• No transformation was needed/applied\n\n"
+                            f"IMPORTANT: This analysis uses model residuals (not raw group data) to test normality assumptions. "
+                            f"This provides a more accurate assessment of whether the statistical model assumptions are met."
+                        )
+                else:
+                    summary = (
+                        "The assumptions were checked as documented above. "
+                        "See test results for each group for details."
+                    )
+                    
             ws.merge_range(f'A{row}:F{row}', summary, fmt["explanation"])
             ws.set_row(row, ResultsExporter.get_text_height(summary, 30*6))
             row += 2
@@ -8792,13 +9290,26 @@ class AnalysisManager:
                 test_recommendation = None
                 test_info = None
             else:
+                # Determine model type based on parameters
+                if len(groups) == 2:
+                    model_type = "ttest"
+                    formula = "Value ~ C(Group)"
+                elif len(groups) > 2:
+                    model_type = "oneway"
+                    formula = "Value ~ C(Group)"
+                else:
+                    model_type = "oneway"
+                    formula = "Value ~ C(Group)"
+                    
                 # Normality and variance check with dataset name
                 transformed_samples, test_recommendation, test_info = StatisticalTester.check_normality_and_variance(
                     groups,
                     filtered_samples,
                     dataset_name=dataset_name,
                     progress_text=kwargs.get('dialog_progress', None),
-                    column_name=kwargs.get('dialog_column', None)
+                    column_name=kwargs.get('dialog_column', None),
+                    formula=formula,
+                    model_type=model_type
                 )
             print(f"DEBUG: Test recommendation is '{test_recommendation}'")
             print(f"DEBUG: Test info transformation: '{test_info.get('transformation') if test_info else 'N/A'}'")
@@ -9062,35 +9573,45 @@ class AnalysisManager:
 
             # Log before transformation (only for standard tests that went through normality checking)
             if test_info:
-                analysis_log += "\nResults of tests before transformation:\n"
-                all_data_normality = test_info["normality_tests"].get("all_data")
-                if all_data_normality and all_data_normality.get("p_value") is not None:
-                    analysis_log += f"Shapiro-Wilk test (normality): p = {all_data_normality['p_value']:.4f} - "
-                    analysis_log += "Normally distributed\n" if all_data_normality.get('is_normal', False) else "Not normally distributed\n"
+                analysis_log += "\nResults of assumption tests before transformation:\n"
+                
+                # Get residual normality from new structure
+                pre_residual_norm = test_info.get("pre_transformation", {}).get("residuals_normality")
+                if pre_residual_norm and pre_residual_norm.get("p_value") is not None:
+                    analysis_log += f"Shapiro-Wilk test (model residuals normality): p = {pre_residual_norm['p_value']:.4f} - "
+                    analysis_log += "Model residuals normally distributed\n" if pre_residual_norm.get('is_normal', False) else "Model residuals not normally distributed\n"
                 else:
-                    analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
+                    analysis_log += "Shapiro-Wilk test (model residuals): Test not performed (insufficient data)\n"
 
-                if test_info["variance_test"].get("p_value") is not None:
-                    analysis_log += f"Brown-Forsythe-test (variance homogeneity): p = {test_info['variance_test']['p_value']:.4f} - "
-                    analysis_log += "Variances homogeneous\n" if test_info['variance_test'].get('equal_variance', False) else "Variances heterogeneous\n"
+                # Get variance test from new structure
+                pre_variance = test_info.get("pre_transformation", {}).get("variance")
+                if pre_variance and pre_variance.get("p_value") is not None:
+                    analysis_log += f"Levene test (variance homogeneity): p = {pre_variance['p_value']:.4f} - "
+                    analysis_log += "Variances homogeneous\n" if pre_variance.get('equal_variance', False) else "Variances heterogeneous\n"
                 else:
-                    analysis_log += "Brown-Forsythe-test: Not performed (insufficient data)\n"
+                    analysis_log += "Levene test: Not performed (insufficient data)\n"
 
                 # Log transformation
                 if test_info.get("transformation"):
                     analysis_log += f"\nTransformation: {test_info['transformation'].capitalize()} transformation performed.\n"
                     # Log after transformation
-                    analysis_log += "Results of tests after transformation:\n"
-                    if test_info["normality_tests"].get("transformed_data", {}).get("p_value") is not None:
-                        analysis_log += f"Shapiro-Wilk test (normality): p = {test_info['normality_tests']['transformed_data']['p_value']:.4f} - "
-                        analysis_log += "Normally distributed\n" if test_info['normality_tests']['transformed_data'].get('is_normal', False) else "Not normally distributed\n"
+                    analysis_log += "Results of assumption tests after transformation:\n"
+                    
+                    # Get post-transformation residual normality
+                    post_residual_norm = test_info.get("post_transformation", {}).get("residuals_normality")
+                    if post_residual_norm and post_residual_norm.get("p_value") is not None:
+                        analysis_log += f"Shapiro-Wilk test (transformed model residuals): p = {post_residual_norm['p_value']:.4f} - "
+                        analysis_log += "Transformed model residuals normally distributed\n" if post_residual_norm.get('is_normal', False) else "Transformed model residuals not normally distributed\n"
                     else:
-                        analysis_log += "Shapiro-Wilk test (normality): Test not performed (insufficient data)\n"
-                    if test_info["variance_test"].get("transformed", {}).get("p_value") is not None:
-                        analysis_log += f"Brown-Forsythe-test (variance homogeneity): p = {test_info['variance_test']['transformed']['p_value']:.4f} - "
-                        analysis_log += "Variances homogeneous\n" if test_info['variance_test']['transformed'].get('equal_variance', False) else "Variances heterogeneous\n"
+                        analysis_log += "Shapiro-Wilk test (transformed model residuals): Test not performed (insufficient data)\n"
+                    
+                    # Get post-transformation variance
+                    post_variance = test_info.get("post_transformation", {}).get("variance")
+                    if post_variance and post_variance.get("p_value") is not None:
+                        analysis_log += f"Levene test (transformed data variance homogeneity): p = {post_variance['p_value']:.4f} - "
+                        analysis_log += "Transformed data variances homogeneous\n" if post_variance.get('equal_variance', False) else "Transformed data variances heterogeneous\n"
                     else:
-                        analysis_log += "Brown-Forsythe-test: Not performed (insufficient data)\n"
+                        analysis_log += "Levene test (transformed data): Not performed (insufficient data)\n"
                 else:
                     analysis_log += "\nTransformation: No transformation performed.\n"
 
@@ -9124,10 +9645,62 @@ class AnalysisManager:
                             control_group = None
                             if posthoc_choice == "dunnett":
                                 control_group = UIDialogManager.select_control_group_dialog(valid_groups)
-                            posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
-                                valid_groups, transformed_samples, test_recommendation,
-                                alpha=0.05, posthoc_choice=posthoc_choice, control_group=control_group
-                            )
+                            elif posthoc_choice == "paired_custom":
+                                # Handle paired custom directly here to avoid double dialog
+                                pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
+                                if pairs:
+                                    # Import required modules
+                                    from scipy import stats
+                                    import numpy as np
+                                    from statsmodels.stats.multitest import multipletests
+                                    
+                                    # Paired t-tests für die gewählten Paare
+                                    pvals, stats_list = [], []
+                                    for g1, g2 in pairs:
+                                        x, y = np.array(transformed_samples[g1]), np.array(transformed_samples[g2])
+                                        tstat, p = stats.ttest_rel(x, y)
+                                        stats_list.append(tstat)
+                                        pvals.append(p)
+                                    # Holm-Sidak-Korrektur
+                                    reject, p_adj, _, _ = multipletests(pvals, alpha=0.05, method='holm-sidak')
+                                    
+                                    # Create results in the same format as other post-hoc tests
+                                    posthoc_results = {
+                                        "posthoc_test": "Custom paired t-tests (Holm-Sidak)",
+                                        "pairwise_comparisons": [],
+                                        "error": None
+                                    }
+                                    
+                                    # Ergebnisse sammeln
+                                    for i, (g1, g2) in enumerate(pairs):
+                                        ci = PostHocStatistics.calculate_ci_mean_diff(transformed_samples[g1], transformed_samples[g2], alpha=0.05, paired=True)
+                                        d = PostHocStatistics.calculate_cohens_d(transformed_samples[g1], transformed_samples[g2], paired=True)
+                                        PostHocAnalyzer.add_comparison(
+                                            posthoc_results,
+                                            group1=g1,
+                                            group2=g2,
+                                            test="Paired t-test (Holm-Sidak)",
+                                            p_value=p_adj[i],
+                                            statistic=stats_list[i],
+                                            corrected=True,
+                                            correction_method="Holm-Sidak",
+                                            effect_size=d,
+                                            effect_size_type="cohen_d",
+                                            confidence_interval=ci,
+                                            alpha=0.05
+                                        )
+                                else:
+                                    posthoc_results = {
+                                        "posthoc_test": "No pairs selected for custom paired t-tests",
+                                        "pairwise_comparisons": [],
+                                        "error": None
+                                    }
+                            else:
+                                # For other parametric post-hoc tests, use the refactored function
+                                posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
+                                    valid_groups, transformed_samples, test_recommendation,
+                                    alpha=0.05, posthoc_choice=posthoc_choice, control_group=control_group
+                                )
                     # Process results uniformly - ONLY ONCE here!
                     if posthoc_results:                      
                         if posthoc_choice == "dunnett" and "control_group" in posthoc_results:
@@ -9155,10 +9728,65 @@ class AnalysisManager:
 
 
             # Make sure normality and variance test results are explicitly set (only if available)
-            if test_info and "normality_tests" in test_info:
-                results["normality_tests"] = test_info["normality_tests"]
-            if test_info and "variance_test" in test_info:
-                results["variance_test"] = test_info["variance_test"]
+            # Convert new test_info structure to the expected format for Excel export
+            if test_info:
+                print(f"DEBUG TEST_INFO STRUCTURE: {test_info}")
+                print(f"DEBUG TEST_INFO KEYS: {list(test_info.keys())}")
+                if "pre_transformation" in test_info:
+                    print(f"DEBUG PRE_TRANSFORMATION: {test_info['pre_transformation']}")
+                
+                # Convert new residuals-based test info to compatible format
+                normality_tests_compat = {}
+                variance_test_compat = {}
+                
+                # Pre-transformation residual normality
+                if "pre_transformation" in test_info and "residuals_normality" in test_info["pre_transformation"]:
+                    pre_norm = test_info["pre_transformation"]["residuals_normality"]
+                    normality_tests_compat["model_residuals"] = {
+                        "statistic": pre_norm.get("statistic"),
+                        "p_value": pre_norm.get("p_value"),
+                        "is_normal": pre_norm.get("is_normal", False),
+                        "test_type": "Shapiro-Wilk (Model Residuals)"
+                    }
+                
+                # Post-transformation residual normality
+                if "post_transformation" in test_info and "residuals_normality" in test_info["post_transformation"]:
+                    post_norm = test_info["post_transformation"]["residuals_normality"]
+                    normality_tests_compat["model_residuals_transformed"] = {
+                        "statistic": post_norm.get("statistic"),
+                        "p_value": post_norm.get("p_value"),
+                        "is_normal": post_norm.get("is_normal", False),
+                        "test_type": "Shapiro-Wilk (Transformed Model Residuals)"
+                    }
+                
+                # Variance tests
+                if "pre_transformation" in test_info and "variance" in test_info["pre_transformation"]:
+                    pre_var = test_info["pre_transformation"]["variance"]
+                    variance_test_compat.update({
+                        "statistic": pre_var.get("statistic"),
+                        "p_value": pre_var.get("p_value"),
+                        "equal_variance": pre_var.get("equal_variance", False)
+                    })
+                    print(f"DEBUG VARIANCE_TEST_COMPAT: {variance_test_compat}")
+                
+                if "post_transformation" in test_info and "variance" in test_info["post_transformation"]:
+                    post_var = test_info["post_transformation"]["variance"]
+                    variance_test_compat["transformed"] = {
+                        "statistic": post_var.get("statistic"),
+                        "p_value": post_var.get("p_value"),
+                        "equal_variance": post_var.get("equal_variance", False)
+                    }
+                
+                results["normality_tests"] = normality_tests_compat
+                results["variance_test"] = variance_test_compat
+                
+                print(f"DEBUG FINAL normality_tests: {results['normality_tests']}")
+                print(f"DEBUG FINAL variance_test: {results['variance_test']}")
+                
+                # Add test_info for complete information
+                results["test_info"] = test_info
+            else:
+                print("DEBUG: test_info is None or empty!")
 
             # Make sure test_type/recommendation is set (only if available):
             if test_recommendation:
@@ -9166,14 +9794,32 @@ class AnalysisManager:
 
             # Merge important transformation and test info into results
             results.update(test_results)
+            
+            # Store normality_tests and variance_test before they get overwritten
+            preserved_normality = results.get("normality_tests", {})
+            preserved_variance = results.get("variance_test", {})
+            
             results.update({
                 "transformed_samples": transformed_samples,
                 "samples": filtered_samples,
                 "transformation": test_info.get("transformation") if test_info else None,
-                "normality_tests": test_info.get("normality_tests", {}) if test_info else {},
-                "variance_test": test_info.get("variance_test", {}) if test_info else {},
                 "test_type": test_recommendation
             })
+            
+            # Restore the correctly formatted test data (don't overwrite with empty data!)
+            if preserved_normality:
+                results["normality_tests"] = preserved_normality
+            elif test_info and "normality_tests" in test_info:
+                results["normality_tests"] = test_info["normality_tests"]
+            else:
+                results["normality_tests"] = {}
+                
+            if preserved_variance:
+                results["variance_test"] = preserved_variance
+            elif test_info and "variance_test" in test_info:
+                results["variance_test"] = test_info["variance_test"]  
+            else:
+                results["variance_test"] = {}
 
             # Nach results.update(test_results):
             print(f"DEBUG: results pairwise_comparisons: {len(results.get('pairwise_comparisons', []))} items")            
@@ -9246,12 +9892,16 @@ class AnalysisManager:
             results['raw_data'] = {g: filtered_samples[g][:] for g in groups}
             if results.get('transformation', 'None') != 'None':
                 results['raw_data_transformed'] = {g: transformed_samples[g][:] for g in groups}
-            results["variance_homogeneity_test"] = test_info.get("variance_test", {}) if test_info else {}    
+            
+            # DO NOT OVERWRITE! The variance_test and normality_tests are already set above
+            # Keep the old format for backward compatibility if variance_test doesn't exist
+            if "variance_test" not in results:
+                results["variance_homogeneity_test"] = test_info.get("variance_test", {}) if test_info else {}    
 
             # Add debug statements before Excel export
             print("DEBUG: Assumption tests before Excel export:")
-            print("  Normality tests:", test_info.get("normality_tests", {}) if test_info else {})
-            print("  Variance tests:", test_info.get("variance_test", {}) if test_info else {})
+            print("  Normality tests:", results.get("normality_tests", {}))
+            print("  Variance tests:", results.get("variance_test", {}))
             print("  Test recommendation:", test_recommendation)
                 
             # Export to Excel

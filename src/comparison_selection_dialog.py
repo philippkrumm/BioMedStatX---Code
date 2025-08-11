@@ -1,4 +1,4 @@
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QCheckBox, QDialogButtonBox, QWidget, QScrollArea
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QCheckBox, QDialogButtonBox, QWidget, QScrollArea, QPushButton, QHBoxLayout
 from PyQt5.QtCore import Qt
 
 class ComparisonSelectionDialog(QDialog):
@@ -32,11 +32,32 @@ class ComparisonSelectionDialog(QDialog):
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)
 
+        # Select/Deselect All buttons
+        button_layout = QHBoxLayout()
+        self.select_all_btn = QPushButton("Select All")
+        self.deselect_all_btn = QPushButton("Deselect All")
+        self.select_all_btn.clicked.connect(self._select_all)
+        self.deselect_all_btn.clicked.connect(self._deselect_all)
+        button_layout.addWidget(self.select_all_btn)
+        button_layout.addWidget(self.deselect_all_btn)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+
         # OK/Cancel buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, Qt.Horizontal, self)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _select_all(self):
+        """Select all checkboxes"""
+        for cb in self.checkboxes:
+            cb.setChecked(True)
+    
+    def _deselect_all(self):
+        """Deselect all checkboxes"""
+        for cb in self.checkboxes:
+            cb.setChecked(False)
 
     def get_selected_comparisons(self):
         selected = []

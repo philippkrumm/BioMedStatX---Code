@@ -169,12 +169,35 @@ class GroupSelectionDialog(QDialog):
         
         layout.addWidget(group_container)
         
+        # Select/Deselect All buttons
+        button_layout = QHBoxLayout()
+        self.select_all_btn = QPushButton("Select All")
+        self.deselect_all_btn = QPushButton("Deselect All")
+        self.select_all_btn.setObjectName("btnSelectAll")
+        self.deselect_all_btn.setObjectName("btnDeselectAll")
+        self.select_all_btn.clicked.connect(self._select_all_groups)
+        self.deselect_all_btn.clicked.connect(self._deselect_all_groups)
+        button_layout.addWidget(self.select_all_btn)
+        button_layout.addWidget(self.deselect_all_btn)
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+        
         # Buttons
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.setObjectName("btnDialogButtons")
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
+    
+    def _select_all_groups(self):
+        """Select all group checkboxes"""
+        for check in self.group_checks.values():
+            check.setChecked(True)
+    
+    def _deselect_all_groups(self):
+        """Deselect all group checkboxes"""
+        for check in self.group_checks.values():
+            check.setChecked(False)
     
     def get_selected_groups(self):
         selected = [group for group, check in self.group_checks.items() if check.isChecked()]
@@ -591,7 +614,7 @@ class AdvancedTestDialog(QDialog):
 
 # --- Unified PlotConfigDialog (new system) ---
 class PlotConfigDialog(QDialog):
-    def __init__(self, groups, parent=None):
+    def __init__(self, groups, parent=None, default_filename=None):
         if not groups:
             QMessageBox.critical(parent, "Error", "No groups passed for plot configuration!")
             raise ValueError("No groups for PlotConfigDialog.")
@@ -645,6 +668,13 @@ class PlotConfigDialog(QDialog):
         self.file_name_edit = QLineEdit("")
         self.file_name_edit.setObjectName("edtFileName")
         self.file_name_edit.setPlaceholderText("Default: automatically generated from group names")
+        
+        # Set default filename if provided
+        if default_filename:
+            clean_filename = "".join(c for c in default_filename if c.isalnum() or c in (' ', '-', '_')).strip()
+            if clean_filename:
+                self.file_name_edit.setText(clean_filename)
+                
         file_layout.addWidget(self.file_name_edit, 0, 1)
         
         layout.addWidget(file_group)
@@ -1911,7 +1941,7 @@ class StatisticalAnalyzerApp(QMainWindow):
         # Buttons for group selection
         group_buttons = QHBoxLayout()
         group_buttons.setObjectName("lyoGroupButtons")
-        select_groups_button = QPushButton("Select groups for plot")
+        select_groups_button = QPushButton("Select groups for analysis")
         select_groups_button.setObjectName("btnSelectGroups")
         select_groups_button.clicked.connect(self.select_groups_for_plot)
         
@@ -1974,10 +2004,10 @@ class StatisticalAnalyzerApp(QMainWindow):
         # Action buttons
         actions_layout = QHBoxLayout()
         actions_layout.setObjectName("lyoActionButtons")
-        analyze_button = QPushButton("Create and analyze all plots")
+        analyze_button = QPushButton("Start all analyses")
         analyze_button.setObjectName("btnAnalyzeAll")
         analyze_button.clicked.connect(self.run_all_analyses)
-        analyze_selected_button = QPushButton("Create selected plot")
+        analyze_selected_button = QPushButton("Start selected analysis")
         analyze_selected_button.setObjectName("btnAnalyzeSelected")
         analyze_selected_button.clicked.connect(self.run_selected_analysis)
         multi_analyze_button = QPushButton("Start multi-dataset analysis")
@@ -2086,6 +2116,9 @@ class StatisticalAnalyzerApp(QMainWindow):
                     self.numeric_columns.append(col)
             
             self.value_cols_combo.addItems(self.numeric_columns)
+            
+            # Reset selected columns when new data is loaded
+            self.selected_columns = []
             
             # Update available groups after loading new columns
             self.update_available_groups()
@@ -2378,8 +2411,15 @@ class StatisticalAnalyzerApp(QMainWindow):
     
     def configure_plot(self, groups):
         """Opens a dialog to configure a plot with the selected groups."""
+        # Get Excel filename for default filename
+        default_filename = None
+        if hasattr(self, 'file_path') and self.file_path:
+            # Get filename without path and extension, add "_analyzed"
+            base_filename = os.path.splitext(os.path.basename(self.file_path))[0]
+            default_filename = f"{base_filename}_analyzed"
+        
         # Open the main plot configuration dialog first
-        dlg = PlotConfigDialog(groups, parent=self)
+        dlg = PlotConfigDialog(groups, parent=self, default_filename=default_filename)
         if dlg.exec_() == dlg.Accepted:
             config = dlg.get_config()
             if config is None:
@@ -2400,8 +2440,15 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         config = self.plot_configs[index]
         
+        # Get Excel filename for default filename
+        default_filename = None
+        if hasattr(self, 'file_path') and self.file_path:
+            # Get filename without path and extension, add "_analyzed"
+            base_filename = os.path.splitext(os.path.basename(self.file_path))[0]
+            default_filename = f"{base_filename}_analyzed"
+        
         # KORREKTUR: Gehe zuerst zu PlotConfigDialog, nicht direkt zu PlotAestheticsDialog
-        dlg = PlotConfigDialog(config.get('groups', []), parent=self)
+        dlg = PlotConfigDialog(config.get('groups', []), parent=self, default_filename=default_filename)
         
         # Lade die bestehende Konfiguration in den Dialog (nur verfügbare Felder)
         if 'file_name' in config:
@@ -3548,8 +3595,16 @@ class StatisticalAnalyzerApp(QMainWindow):
                     print(f"Configuring plot for column {column} ({i+1}/{len(self.selected_columns)})")
                     print(f"DEBUG MULTI:   ► iterating dataset #{i+1}: '{column}'")
                     print(f"DEBUG MULTI:      → plot_configs keys so far: {list(plot_configs.keys())}")
+                    
+                    # Get Excel filename for default filename
+                    default_filename = None
+                    if hasattr(self, 'file_path') and self.file_path:
+                        # Get filename without path and extension, add column name and "_analyzed"
+                        base_filename = os.path.splitext(os.path.basename(self.file_path))[0]
+                        default_filename = f"{base_filename}_{column}_analyzed"
+                    
                     # --- Use the main PlotConfigDialog for each dataset ---
-                    dlg = PlotConfigDialog(selected_groups, parent=self)
+                    dlg = PlotConfigDialog(selected_groups, parent=self, default_filename=default_filename)
                     dlg.setWindowTitle(f"Configure plot for '{column}' ({i+1}/{len(self.selected_columns)})")
                     # Pre-fill the file name with the column name
                     dlg.file_name_edit.setText(f"{column}_analysis")

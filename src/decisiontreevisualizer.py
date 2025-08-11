@@ -760,8 +760,8 @@ class DecisionTreeVisualizer:
             elif "dunnett" in posthoc_test.lower() and "t3" not in posthoc_test.lower():
                 print(f"DEBUG TREE: Highlighting Dunnett path")
                 highlighted.add(('O1_PH', 'P1_PH_DN'))
-            elif "holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower():
-                print(f"DEBUG TREE: Highlighting Holm-Sidak path")
+            elif "holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower() or "custom paired" in posthoc_test.lower():
+                print(f"DEBUG TREE: Highlighting Holm-Sidak path for posthoc: '{posthoc_test}'")
                 highlighted.add(('O1_PH', 'P1_PH_SD'))
             # NEU: Nichtparametrische Post-hoc-Tests
             elif "mann-whitney" in posthoc_test.lower():
@@ -780,7 +780,7 @@ class DecisionTreeVisualizer:
                 # Try to infer from the test names in pairwise comparisons
                 first_comp = pairwise_comps[0]
                 test_name_in_comp = first_comp.get("test", "").lower()
-                corrected_method = first_comp.get("corrected", "").lower()
+                corrected_method = first_comp.get("correction_method", "").lower()  # FIX: Use correct field name
                 print(f"DEBUG TREE: No explicit posthoc_test, inferring from pairwise test: '{test_name_in_comp}' with correction: '{corrected_method}'")
                 
                 if "holm" in test_name_in_comp or "sidak" in test_name_in_comp or "holm" in corrected_method or "sidak" in corrected_method:
