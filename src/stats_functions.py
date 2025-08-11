@@ -2032,71 +2032,19 @@ class StatisticalTester:
                         results["power"] = None
                     results["confidence_interval"] = (None, None)
             if test_recommendation == "parametric" and results.get("p_value") is not None and results["p_value"] < alpha:
-                posthoc_choice = UIDialogManager.select_posthoc_test_dialog(
-                    parent=None, progress_text=None, column_name=None
+                # Use the unified post-hoc testing approach instead of separate dialogs
+                print("DEBUG: Significant parametric test, calling perform_refactored_posthoc_testing")
+                posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
+                    valid_groups, samples_to_use, test_recommendation="parametric", alpha=alpha,
+                    posthoc_choice=None  # Let the function show the dialog
                 )
-                if posthoc_choice and posthoc_choice != "none":
-                    control_group = None
-                    if posthoc_choice == "dunnett":
-                        control_group = UIDialogManager.select_control_group_dialog(valid_groups)
-                    elif posthoc_choice == "paired_custom":
-                        # Handle paired custom directly here to avoid double dialog
-                        pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
-                        if pairs:
-                            # Import required modules
-                            from scipy import stats
-                            import numpy as np
-                            from statsmodels.stats.multitest import multipletests
-                            
-                            # Paired t-tests für die gewählten Paare
-                            pvals, stats_list = [], []
-                            for g1, g2 in pairs:
-                                x, y = np.array(samples_to_use[g1]), np.array(samples_to_use[g2])
-                                tstat, p = stats.ttest_rel(x, y)
-                                stats_list.append(tstat)
-                                pvals.append(p)
-                            # Holm-Sidak-Korrektur
-                            reject, p_adj, _, _ = multipletests(pvals, alpha=alpha, method='holm-sidak')
-                            
-                            # Create results in the same format as other post-hoc tests
-                            posthoc_results = {
-                                "posthoc_test": "Custom paired t-tests (Holm-Sidak)",
-                                "pairwise_comparisons": [],
-                                "error": None
-                            }
-                            
-                            # Ergebnisse sammeln
-                            for i, (g1, g2) in enumerate(pairs):
-                                ci = PostHocStatistics.calculate_ci_mean_diff(samples_to_use[g1], samples_to_use[g2], alpha=alpha, paired=True)
-                                d = PostHocStatistics.calculate_cohens_d(samples_to_use[g1], samples_to_use[g2], paired=True)
-                                PostHocAnalyzer.add_comparison(
-                                    posthoc_results,
-                                    group1=g1,
-                                    group2=g2,
-                                    test="Paired t-test (Holm-Sidak)",
-                                    p_value=p_adj[i],
-                                    statistic=stats_list[i],
-                                    corrected=True,
-                                    correction_method="Holm-Sidak",
-                                    effect_size=d,
-                                    effect_size_type="cohen_d",
-                                    confidence_interval=ci,
-                                    alpha=alpha
-                                )
-                            
-                            results["posthoc_test"] = posthoc_results.get("posthoc_test")
-                            results["pairwise_comparisons"] = posthoc_results.get("pairwise_comparisons", [])
-                        else:
-                            results["posthoc_test"] = "No pairs selected for custom paired t-tests"
-                            results["pairwise_comparisons"] = []
-                    else:
-                        # For other post-hoc tests (tukey, dunnett), use the refactored function
-                        posthoc_results = StatisticalTester.perform_refactored_posthoc_testing(
-                            valid_groups, samples_to_use, test_recommendation="parametric", alpha=alpha,
-                            posthoc_choice=posthoc_choice, control_group=control_group
-                        )
-                        results["posthoc_test"] = posthoc_results.get("posthoc_test")
-                        results["pairwise_comparisons"] = posthoc_results.get("pairwise_comparisons", [])
+                
+                if posthoc_results:
+                    results["posthoc_test"] = posthoc_results.get("posthoc_test")
+                    results["pairwise_comparisons"] = posthoc_results.get("pairwise_comparisons", [])
+                else:
+                    results["posthoc_test"] = "No post-hoc tests performed"
+                    results["pairwise_comparisons"] = []
             elif test_recommendation == "non_parametric" and results.get("p_value") is not None and results["p_value"] < alpha:
                 # Let the perform_refactored_posthoc_testing function handle the dialog selection
                 print("DEBUG: Significant non-parametric test, calling perform_refactored_posthoc_testing without preset posthoc_choice")
@@ -4412,7 +4360,19 @@ class StatisticalTester:
             if is_dependent:
                 posthoc_choice = "dependent"
             elif test_recommendation == "parametric":
-                posthoc_choice = "tukey"
+                # Show dialog for parametric post-hoc test selection
+                try:
+                    posthoc_choice = UIDialogManager.select_posthoc_test_dialog(
+                        parent=None, progress_text=None, column_name=None
+                    )
+                    print(f"DEBUG: Parametric post-hoc dialog returned: {posthoc_choice}")
+                    # If dialog was cancelled or returned None, default to Tukey
+                    if posthoc_choice is None:
+                        posthoc_choice = "tukey"
+                        print("DEBUG: Parametric post-hoc dialog cancelled, defaulting to Tukey HSD")
+                except Exception as e:
+                    print(f"DEBUG: Error showing parametric post-hoc dialog: {e}")
+                    posthoc_choice = "tukey"  # Fallback to Tukey HSD
             else:
                 # NEU: Dialog für nichtparametrische Post-hoc-Tests
                 print("DEBUG: About to show non-parametric post-hoc dialog")
@@ -4430,6 +4390,18 @@ class StatisticalTester:
                     import traceback
                     traceback.print_exc()
                     posthoc_choice = "dunn"  # Fallback to Dunn test
+        
+        # If Dunnett was selected, we need a control group
+        if posthoc_choice == "dunnett" and control_group is None:
+            try:
+                control_group = UIDialogManager.select_control_group_dialog(valid_groups)
+                print(f"DEBUG: Control group selected for Dunnett test: {control_group}")
+                if control_group is None:
+                    print("DEBUG: No control group selected, defaulting to Tukey HSD")
+                    posthoc_choice = "tukey"
+            except Exception as e:
+                print(f"DEBUG: Error selecting control group: {e}")
+                posthoc_choice = "tukey"  # Fallback to Tukey if control selection fails
 
         try:
             is_parametric = test_recommendation == "parametric"
@@ -4581,7 +4553,11 @@ class UIDialogManager:
         dialog.setWindowTitle(title)
 
         info_text = "The ANOVA has revealed significant differences. Please select a post-hoc test:"
-        if progress_text and "two_way_anova" in progress_text:
+        if progress_text and ("two_way_anova" in progress_text or "mixed_anova" in progress_text or "repeated_measures_anova" in progress_text):
+            info_text = ("The advanced ANOVA has revealed significant differences. For advanced ANOVAs, "
+                        "paired t-tests are often preferred to examine specific interaction effects. "
+                        "Please select a post-hoc test:")
+        elif progress_text and "two_way_anova" in progress_text:
             info_text = ("The Two-Way ANOVA has revealed significant differences. For Two-Way ANOVA, "
                         "paired t-tests are often preferred to examine specific interaction effects. "
                         "Please select a post-hoc test:")
@@ -4590,12 +4566,20 @@ class UIDialogManager:
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        # RadioButtons for post-hoc tests
-        options = [
-            ("Tukey-HSD Test (compares all pairs, best for main effects)", "tukey"),
-            ("Dunnett Test (compares all groups against ONE control group)", "dunnett"),
-            ("Custom paired t-tests (you select specific pairs to compare)", "paired_custom"),
-        ]
+        # RadioButtons for post-hoc tests - options depend on context
+        if progress_text and ("two_way_anova" in progress_text or "mixed_anova" in progress_text or "repeated_measures_anova" in progress_text):
+            # For advanced ANOVAs: only offer Tukey and Custom paired t-tests (no Dunnett)
+            options = [
+                ("Tukey-HSD Test (compares all pairs)", "tukey"),
+                ("Custom paired t-tests (you select specific pairs to compare)", "paired_custom"),
+            ]
+        else:
+            # For One-Way ANOVA: offer all three options
+            options = [
+                ("Tukey-HSD Test (compares all pairs, best for main effects)", "tukey"),
+                ("Dunnett Test (compares all groups against ONE control group)", "dunnett"),
+                ("Custom paired t-tests (you select specific pairs to compare)", "paired_custom"),
+            ]
         radio_buttons = []
         for label, value in options:
             rb = QRadioButton(label)

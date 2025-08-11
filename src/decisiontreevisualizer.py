@@ -743,12 +743,22 @@ class DecisionTreeVisualizer:
                             "rm" not in test_name and "repeated" not in test_name and
                             "mixed" not in test_name))
         
+        # Check if this is an advanced ANOVA (Two-Way, Mixed, RM)
+        is_advanced_anova = ("two-way" in test_name or "two way" in test_name or 
+                            "mixed" in test_name or "rm" in test_name or "repeated" in test_name)
+        
         if is_one_way_anova and not posthoc_test:
-            # For One-Way ANOVA with no specific post-hoc performed: show all options
+            # For One-Way ANOVA with no specific post-hoc performed: show all options (including Dunnett)
             print(f"DEBUG TREE: One-Way ANOVA detected - showing all post-hoc options for user choice")
             highlighted.add(('O1_PH', 'P1_PH_TK'))  # Tukey
             highlighted.add(('O1_PH', 'P1_PH_DN'))  # Dunnett  
             highlighted.add(('O1_PH', 'P1_PH_SD'))  # Holm-Sidak
+            return
+        elif is_advanced_anova and not posthoc_test:
+            # For Advanced ANOVAs with no specific post-hoc performed: show only Tukey and Pairwise (no Dunnett)
+            print(f"DEBUG TREE: Advanced ANOVA detected - showing only Tukey and Pairwise post-hoc options")
+            highlighted.add(('O1_PH', 'P1_PH_TK'))  # Tukey
+            highlighted.add(('O1_PH', 'P1_PH_SD'))  # Holm-Sidak (Pairwise t-tests)
             return
         
         # For specific tests or when a post-hoc was actually performed: show the specific path
@@ -793,11 +803,15 @@ class DecisionTreeVisualizer:
                     print(f"DEBUG TREE: Inferred Dunnett from pairwise test")
                     highlighted.add(('O1_PH', 'P1_PH_DN'))
                 else:
-                    print(f"DEBUG TREE: Unknown pairwise test type, showing all options for choice")
+                    print(f"DEBUG TREE: Unknown pairwise test type, showing options for choice")
                     if is_one_way_anova:
-                        # Show all options for One-Way ANOVA
+                        # Show all options for One-Way ANOVA (including Dunnett)
                         highlighted.add(('O1_PH', 'P1_PH_TK'))
                         highlighted.add(('O1_PH', 'P1_PH_DN'))
+                        highlighted.add(('O1_PH', 'P1_PH_SD'))
+                    elif is_advanced_anova:
+                        # Show only Tukey and Pairwise for Advanced ANOVAs (no Dunnett)
+                        highlighted.add(('O1_PH', 'P1_PH_TK'))
                         highlighted.add(('O1_PH', 'P1_PH_SD'))
                     else:
                         highlighted.add(('O1_PH', 'P1_PH_TK'))  # Default to Tukey
@@ -808,8 +822,12 @@ class DecisionTreeVisualizer:
                     highlighted.add(('O1_PH', 'P1_PH_TK'))  # Tukey
                     highlighted.add(('O1_PH', 'P1_PH_DN'))  # Dunnett
                     highlighted.add(('O1_PH', 'P1_PH_SD'))  # Holm-Sidak
+                elif is_advanced_anova:
+                    print(f"DEBUG TREE: Advanced ANOVA - showing only Tukey and Pairwise post-hoc options")
+                    highlighted.add(('O1_PH', 'P1_PH_TK'))  # Tukey
+                    highlighted.add(('O1_PH', 'P1_PH_SD'))  # Holm-Sidak (Pairwise t-tests)
                 else:
-                    print(f"DEBUG TREE: Using default Tukey for non-One-Way ANOVA")
+                    print(f"DEBUG TREE: Using default Tukey for other test types")
                     highlighted.add(('O1_PH', 'P1_PH_TK'))
 
 def test_decision_tree_visualization():
