@@ -1,6 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+import os
 
 block_cipher = None
+
+# Platform-specific icon handling
+if sys.platform.startswith('win'):
+    icon_file = 'assets/Institutslogo.ico'
+elif sys.platform.startswith('darwin'):
+    icon_file = 'assets/Institutslogo.ico'  # macOS can handle .ico files
+else:
+    icon_file = None  # Linux doesn't use icons in the same way
 
 a = Analysis(
     ['src/statistical_analyzer.py'],
@@ -10,12 +20,28 @@ a = Analysis(
         ('assets/StyleSheet.qss', 'assets'),
         ('assets/Institutslogo.ico', 'assets'),
         ('assets/StatisticalAnalyzer_Excel_Template.xlsx', 'assets'),
+        ('assets/HowToScreenshots', 'assets/HowToScreenshots'),
     ],
     hiddenimports=[
         'matplotlib.backends.backend_svg',
         'matplotlib.backends.backend_pdf',
         'matplotlib.backends.backend_ps',
         'matplotlib.backends.backend_agg',
+        'scikit_posthocs',
+        'networkx',
+        'pingouin',
+        'statsmodels',
+        'statsmodels.stats.multitest',
+        'statsmodels.stats.multicomp',
+        'statsmodels.formula.api',
+        'statsmodels.stats.anova',
+        'seaborn',
+        'xlsxwriter',
+        'openpyxl',
+        'scipy.stats',
+        'numpy',
+        'pandas',
+        'psutil',
     ],
     hookspath=[],
     hooksconfig={},
@@ -82,7 +108,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    console=False,  # GUI app
+    icon=icon_file,
 )
 
 coll = COLLECT(
@@ -93,5 +120,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='BioMedStatX_dist',
+    name='BioMedStatX',  # Changed from 'BioMedStatX_dist' for cleaner folder name
 )
