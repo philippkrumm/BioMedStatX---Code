@@ -98,6 +98,282 @@ def safe_format(val, fmt="{:.4f}", none_text="N/A"):
         return none_text
     else:
         return str(val)
+
+
+class AssumptionVisualizer:
+    """
+    Creates visual examinations for statistical test assumptions (normality and homoscedasticity).
+    """
+    
+    @staticmethod
+    def create_normality_plot(data_dict, title_suffix="", transformation=None, results=None):
+        """
+        Create Q-Q plot for normality examination using MODEL RESIDUALS (not individual groups).
+        
+        Parameters:
+        -----------
+        data_dict : dict
+            Dictionary with group names as keys and data arrays as values (for fallback)
+        title_suffix : str
+            Suffix to add to the plot title (e.g., "Before Transformation")
+        transformation : str
+            Name of transformation applied (if any)
+        results : dict
+            Results dictionary containing model residuals if available
+            
+        Returns:
+        --------
+        str
+            Path to the saved plot file, or None if failed
+        """
+        try:
+            import tempfile
+            import time
+            stats = get_stats_module()
+            
+            # Try to get model residuals first (correct approach)
+            residuals = None
+            if results and 'model_residuals' in results:
+                residuals = results['model_residuals']
+                data_source = "Model Residuals"
+            elif results and 'residuals' in results:
+                residuals = results['residuals']
+                data_source = "Model Residuals"
+            else:
+                # Fallback: combine all data from groups (less ideal but better than nothing)
+                if not data_dict:
+                    return None
+                all_values = []
+                for values in data_dict.values():
+                    clean_vals = [v for v in values if not (pd.isna(v) if pd else np.isnan(v))]
+                    all_values.extend(clean_vals)
+                residuals = np.array(all_values)
+                data_source = "Combined Group Data"
+            
+            if residuals is None or len(residuals) < 3:
+                return None
+            
+            # Remove NaN values from residuals
+            clean_residuals = np.array([r for r in residuals if not (pd.isna(r) if pd else np.isnan(r))])
+            
+            if len(clean_residuals) < 3:
+                return None
+            
+            # Create single Q-Q plot (larger size for better readability)
+            fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+            
+            # Create Q-Q plot of residuals
+            stats.probplot(clean_residuals, dist="norm", plot=ax)
+            
+            # Customize plot
+            ax.set_title(f"Normality Check - Q-Q Plot of {data_source}\n(n={len(clean_residuals)} observations)", 
+                        fontsize=14, fontweight='bold', pad=20)
+            ax.set_xlabel("Theoretical Normal Quantiles", fontsize=12)
+            ax.set_ylabel("Sample Quantiles", fontsize=12)
+            ax.grid(True, alpha=0.3)
+            
+            # Style the reference line
+            line = ax.get_lines()[1]  # Second line is the reference line
+            line.set_color('red')
+            line.set_linewidth(3)
+            line.set_alpha(0.8)
+            
+            # Style the data points
+            points = ax.get_lines()[0]
+            points.set_markersize(6)
+            points.set_alpha(0.7)
+            
+            # Add transformation info to title if applicable
+            transform_text = f" ({transformation})" if transformation and transformation.lower() != "none" else ""
+            fig.suptitle(f"Normality Examination{transform_text}{title_suffix}", 
+                        fontsize=16, fontweight='bold')
+            
+            plt.tight_layout()
+            
+            # Save to temporary file
+            temp_dir = tempfile.gettempdir()
+            temp_filename = f"normality_plot_{int(time.time())}.png"
+            temp_path = os.path.join(temp_dir, temp_filename)
+            
+            fig.savefig(temp_path, dpi=300, bbox_inches='tight', facecolor='white')
+            plt.close(fig)
+            
+            print(f"DEBUG: Generated normality plot: {temp_path}")
+            return temp_path
+            
+        except Exception as e:
+            print(f"DEBUG: Error creating normality plot: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    @staticmethod
+    def create_homoscedasticity_plot(data_dict, title_suffix="", transformation=None):
+        """
+        Create boxplots for homoscedasticity (variance homogeneity) examination.
+        
+        Parameters:
+        -----------
+        data_dict : dict
+            Dictionary with group names as keys and data arrays as values
+        title_suffix : str
+            Suffix to add to the plot title (e.g., "Before Transformation")
+        transformation : str
+            Name of transformation applied (if any)
+            
+        Returns:
+        --------
+        str
+            Path to the saved plot file, or None if failed
+        """
+        try:
+            import tempfile
+            import time
+            
+            if not data_dict:
+                return None
+            
+            # Create larger figure for better readability
+            fig, ax = plt.subplots(1, 1, figsize=(max(12, len(data_dict) * 2), 8))
+            
+            # Prepare data for boxplot
+            group_names = []
+            group_data = []
+            
+            for group_name, values in data_dict.items():
+                # Remove NaN values
+                clean_values = [v for v in values if not (pd.isna(v) if pd else np.isnan(v))]
+                if clean_values:
+                    group_names.append(f"{group_name}\n(n={len(clean_values)})")
+                    group_data.append(clean_values)
+            
+            if not group_data:
+                ax.text(0.5, 0.5, "No valid data for plot", ha='center', va='center', 
+                       transform=ax.transAxes, fontsize=14)
+                ax.set_title("Variance Homogeneity Examination", fontsize=16, fontweight='bold')
+                return None
+            
+            # Create boxplot with better styling
+            bp = ax.boxplot(group_data, labels=group_names, patch_artist=True, 
+                           notch=True, showmeans=True, meanline=True)
+            
+            # Color the boxes with distinct colors
+            colors = plt.cm.Set2(np.linspace(0, 1, len(group_data)))
+            for patch, color in zip(bp['boxes'], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.8)
+                patch.set_linewidth(1.5)
+            
+            # Style other elements
+            for element in ['whiskers', 'fliers', 'medians', 'caps']:
+                plt.setp(bp[element], linewidth=1.5)
+            
+            # Customize plot appearance
+            ax.set_ylabel('Values', fontsize=14, fontweight='bold')
+            ax.set_xlabel('Groups', fontsize=14, fontweight='bold')
+            ax.grid(True, alpha=0.3)
+            ax.tick_params(axis='x', rotation=45, labelsize=12)
+            ax.tick_params(axis='y', labelsize=12)
+            
+            # Add main title
+            transform_text = f" ({transformation})" if transformation and transformation.lower() != "none" else ""
+            ax.set_title(f"Variance Homogeneity Examination - Boxplots{transform_text}{title_suffix}", 
+                        fontsize=16, fontweight='bold', pad=20)
+            
+            plt.tight_layout()
+            
+            # Save to temporary file
+            temp_dir = tempfile.gettempdir()
+            temp_filename = f"homoscedasticity_plot_{int(time.time())}.png"
+            temp_path = os.path.join(temp_dir, temp_filename)
+            
+            fig.savefig(temp_path, dpi=300, bbox_inches='tight', facecolor='white')
+            plt.close(fig)
+            
+            print(f"DEBUG: Generated homoscedasticity plot: {temp_path}")
+            return temp_path
+            
+        except Exception as e:
+            print(f"DEBUG: Error creating homoscedasticity plot: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    @staticmethod
+    def generate_assumption_plots(results):
+        """
+        Generate both normality and homoscedasticity plots for the given results.
+        Creates before/after transformation plots when applicable.
+        
+        Parameters:
+        -----------
+        results : dict
+            Results dictionary containing test data and transformation info
+            
+        Returns:
+        --------
+        dict
+            Dictionary with plot paths: {
+                'normality_before': path,
+                'normality_after': path,
+                'homoscedasticity_before': path,  
+                'homoscedasticity_after': path
+            }
+        """
+        plot_paths = {
+            'normality_before': None,
+            'normality_after': None,
+            'homoscedasticity_before': None,
+            'homoscedasticity_after': None
+        }
+        
+        try:
+            # Get original data
+            raw_data = results.get('raw_data', results.get('original_data', {}))
+            if not raw_data:
+                print("DEBUG: No raw data found for assumption plots")
+                return plot_paths
+            
+            # Get transformation info
+            transformation = results.get('transformation', 'None')
+            transformed_data = results.get('raw_data_transformed', results.get('transformed_data', {}))
+            
+            # Filter out non-data keys
+            raw_data_filtered = {k: v for k, v in raw_data.items() if k.lower() not in ['group', 'sample', '']}
+            
+            # Generate BEFORE transformation plots
+            if raw_data_filtered:
+                plot_paths['normality_before'] = AssumptionVisualizer.create_normality_plot(
+                    raw_data_filtered, " - Before Transformation" if transformation and transformation.lower() != 'none' else "",
+                    results=results
+                )
+                plot_paths['homoscedasticity_before'] = AssumptionVisualizer.create_homoscedasticity_plot(
+                    raw_data_filtered, " - Before Transformation" if transformation and transformation.lower() != 'none' else ""
+                )
+            
+            # Generate AFTER transformation plots (if transformation was applied)
+            if transformed_data and transformation and transformation.lower() != 'none':
+                transformed_filtered = {k: v for k, v in transformed_data.items() if k.lower() not in ['group', 'sample', '']}
+                if transformed_filtered:
+                    plot_paths['normality_after'] = AssumptionVisualizer.create_normality_plot(
+                        transformed_filtered, " - After Transformation", transformation, results=results
+                    )
+                    plot_paths['homoscedasticity_after'] = AssumptionVisualizer.create_homoscedasticity_plot(
+                        transformed_filtered, " - After Transformation", transformation
+                    )
+            
+            # Track all generated files for cleanup
+            for plot_path in plot_paths.values():
+                if plot_path:
+                    ResultsExporter.track_temp_file(plot_path)
+            
+            return plot_paths
+            
+        except Exception as e:
+            print(f"DEBUG: Error generating assumption plots: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return plot_paths
     
 class PostHocAnalyzer:
     """Base class for all post-hoc tests with uniform methods."""
@@ -7872,6 +8148,144 @@ class ResultsExporter:
             ws.write(row, col, val, fmt["cell"])
         row += 2
     
+        # VISUAL EXAMINATION SECTION (for all cases)
+        ws.merge_range(f'A{row}:F{row}', "VISUAL EXAMINATION OF ASSUMPTIONS", fmt["section_header"])
+        row += 1
+        
+        visual_intro = (
+            "VISUAL ASSUMPTION CHECKING - What You're Looking At:\n\n"
+            "This section shows plots that help you visually assess whether your data meets the assumptions "
+            "required for your statistical test. Even if you've never seen these plots before, the explanations "
+            "below will guide you through what to look for.\n\n"
+            
+            "🔍 Q-Q PLOTS (Quantile-Quantile Plots) - Normal Distribution Check:\n"
+            "These plots compare your data to what a perfect normal distribution would look like.\n"
+            "• GOOD SIGN: Points form a straight line close to the red reference line → your data is normally distributed\n"
+            "• WARNING SIGN: S-shaped or curved pattern → your data is skewed (not normally distributed)\n"
+            "• WARNING SIGN: Points drift away at the ends → your data has more/fewer extreme values than expected\n\n"
+            
+            "📊 BOXPLOTS - Variance Equality Check:\n"
+            "These show the spread (variability) of data in each group to check if they're similar.\n"
+            "• GOOD SIGN: All boxes are roughly the same height with similar whiskers → equal variances\n"
+            "• WARNING SIGN: Some boxes much taller/shorter than others → unequal variances\n"
+            "• INFO: Dots beyond whiskers are outliers (extreme values)\n"
+            "• INFO: Notches show confidence intervals for medians - non-overlapping means significant difference"
+        )
+        ws.merge_range(f'A{row}:F{row}', visual_intro, fmt["explanation"])
+        ws.set_row(row, ResultsExporter.get_text_height(visual_intro, 30*6))
+        row += 3  # Extra space after introduction
+        
+        # Generate and insert visual plots
+        try:
+            plot_paths = AssumptionVisualizer.generate_assumption_plots(results)
+            
+            # Insert normality plots (before transformation)
+            if plot_paths['normality_before']:
+                ws.merge_range(f'A{row}:F{row}', "📈 NORMALITY EXAMINATION - Q-Q Plot of Model Residuals", fmt["key"])
+                row += 1
+                ws.merge_range(f'A{row}:F{row}', "What to look for: Points should follow the red line closely for normal residuals.", fmt["explanation"])
+                row += 2  # Extra space before image
+                
+                try:
+                    from PIL import Image
+                    with Image.open(plot_paths['normality_before']) as img:
+                        width, height = img.size
+                        # Larger scaling for better readability - minimum 120% of original or fit to 1200px width
+                        scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
+                        ws.insert_image(row, 0, plot_paths['normality_before'], 
+                                      {'x_scale': scale_factor, 'y_scale': scale_factor})
+                        # Calculate rows needed for image with padding
+                        image_rows = int((height * scale_factor) / 15) + 6  # More padding
+                        row += max(image_rows, 25)  # Minimum 25 rows for larger spacing
+                        
+                except Exception as e:
+                    print(f"DEBUG: Error inserting normality plot: {e}")
+                    ws.write(row, 0, f"Error displaying normality plot: {os.path.basename(plot_paths['normality_before'])}", fmt["explanation"])
+                    row += 3
+            
+            # Insert homoscedasticity plots (before transformation)
+            if plot_paths['homoscedasticity_before']:
+                ws.merge_range(f'A{row}:F{row}', "📊 VARIANCE EQUALITY EXAMINATION - Boxplots", fmt["key"])
+                row += 1
+                ws.merge_range(f'A{row}:F{row}', "What to look for: All boxes should be roughly the same height for equal variances.", fmt["explanation"])
+                row += 2  # Extra space before image
+                
+                try:
+                    from PIL import Image
+                    with Image.open(plot_paths['homoscedasticity_before']) as img:
+                        width, height = img.size
+                        # Larger scaling for better readability
+                        scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
+                        ws.insert_image(row, 0, plot_paths['homoscedasticity_before'], 
+                                      {'x_scale': scale_factor, 'y_scale': scale_factor})
+                        # Calculate rows needed for image with padding
+                        image_rows = int((height * scale_factor) / 15) + 6  # More padding
+                        row += max(image_rows, 25)  # Minimum 25 rows for larger spacing
+                        
+                except Exception as e:
+                    print(f"DEBUG: Error inserting homoscedasticity plot: {e}")
+                    ws.write(row, 0, f"Error displaying homoscedasticity plot: {os.path.basename(plot_paths['homoscedasticity_before'])}", fmt["explanation"])
+                    row += 3
+            
+            # Comprehensive interpretation guidance for beginners
+            interpretation_guide = (
+                "📚 DETAILED INTERPRETATION GUIDE (For Beginners)\n\n"
+                
+                "🔍 HOW TO READ Q-Q PLOTS (The plot with dots and a red line):\n\n"
+                "WHAT YOU SEE: A single plot showing model residuals (errors from your statistical test) "
+                "plotted against what a perfect normal distribution would look like.\n\n"
+                
+                "✅ GOOD PATTERNS (Assumptions Met):\n"
+                "• Dots form a straight line along the red line = Model residuals are normally distributed ✓\n"
+                "• Small deviations at the ends are usually acceptable\n"
+                "• Most points stay close to the red reference line\n\n"
+                
+                "⚠️ WARNING PATTERNS (Assumptions Violated):\n"
+                "• S-shaped curve = Residuals are skewed (your model may not be appropriate)\n"
+                "• Upward curve at ends = Residuals have more extreme values than normal\n"
+                "• Downward curve at ends = Residuals have fewer extreme values than normal\n"
+                "• Points scattered far from line = Residuals are not normally distributed\n\n"
+                
+                "📊 HOW TO READ BOXPLOTS (The box-and-whisker plots):\n\n"
+                "WHAT YOU SEE: Each group shows as a colored box with lines (whiskers) and possibly dots.\n\n"
+                
+                "BOX COMPONENTS EXPLAINED:\n"
+                "• Box height = Middle 50% of your data (interquartile range)\n"
+                "• Line inside box = Median (middle value)\n"
+                "• Whiskers (lines) = Range of typical values\n"
+                "• Dots beyond whiskers = Outliers (unusual values)\n"
+                "• Notches (if present) = Confidence intervals for medians\n\n"
+                
+                "✅ GOOD PATTERNS (Equal Variances):\n"
+                "• All boxes roughly the same height = Equal variability between groups ✓\n"
+                "• Similar whisker lengths across groups ✓\n"
+                "• Similar amounts of outliers in each group ✓\n\n"
+                
+                "⚠️ WARNING PATTERNS (Unequal Variances):\n"
+                "• Some boxes much taller/shorter = Different variability between groups\n"
+                "• Very different whisker lengths = Unequal spreads\n"
+                "• Many outliers in some groups but not others = Inconsistent data quality\n\n"
+                
+                "🎯 WHAT TO DO WITH THIS INFORMATION:\n"
+                "• If patterns look GOOD → Your test assumptions are likely met, results are reliable\n"
+                "• If patterns show WARNINGS → Consider data transformation or non-parametric tests\n"
+                "• When in doubt → Consult with a statistician for complex patterns\n\n"
+                
+                "💡 REMEMBER: Visual examination works together with statistical tests. "
+                "Both tools help ensure your analysis is appropriate for your data!\n\n"
+                
+                "🧮 TECHNICAL NOTE: The Q-Q plot shows MODEL RESIDUALS (not raw group data) because "
+                "statistical tests like ANOVA actually test whether the model's prediction errors are normally distributed."
+            )
+            ws.merge_range(f'A{row}:F{row}', interpretation_guide, fmt["explanation"])
+            ws.set_row(row, ResultsExporter.get_text_height(interpretation_guide, 30*6))
+            row += 3  # Extra space after guidelines
+            
+        except Exception as e:
+            print(f"DEBUG: Error generating assumption plots: {e}")
+            ws.write(row, 0, "Error generating visual examination plots", fmt["explanation"])
+            row += 2
+    
         # Add a clear post-transformation section (after the transformation announcement)
         transformation = results.get("transformation", "None")
         if transformation and transformation != "None":
@@ -7964,8 +8378,87 @@ class ResultsExporter:
                 for col, val in enumerate(values):
                     ws.write(row, col, val, fmt["cell"])
                 row += 2
+            
+            # VISUAL EXAMINATION AFTER TRANSFORMATION
+            try:
+                plot_paths = AssumptionVisualizer.generate_assumption_plots(results)
+                
+                # Insert after-transformation plots if they exist
+                if plot_paths['normality_after']:
+                    ws.merge_range(f'A{row}:F{row}', f"🔄 VISUAL EXAMINATION AFTER {transformation.upper()} TRANSFORMATION", fmt["section_header"])
+                    row += 2  # Extra space after section header
+                    
+                    ws.merge_range(f'A{row}:F{row}', f"📈 Normality After {transformation} Transformation - Q-Q Plots", fmt["key"])
+                    row += 1
+                    ws.merge_range(f'A{row}:F{row}', "Compare these plots with the 'before transformation' plots above to see if transformation helped.", fmt["explanation"])
+                    row += 2  # Extra space before image
+                    
+                    try:
+                        from PIL import Image
+                        with Image.open(plot_paths['normality_after']) as img:
+                            width, height = img.size
+                            # More generous scaling - ensure plots are readable
+                            scale_factor = min(1.0, 1000 / width) if width > 1000 else 0.9
+                            ws.insert_image(row, 0, plot_paths['normality_after'], 
+                                          {'x_scale': scale_factor, 'y_scale': scale_factor})
+                            # Calculate rows needed for image with padding
+                            image_rows = int((height * scale_factor) / 15) + 4  # Extra padding
+                            row += max(image_rows, 15)  # Minimum 15 rows for spacing
+                            
+                    except Exception as e:
+                        print(f"DEBUG: Error inserting transformed normality plot: {e}")
+                        ws.write(row, 0, f"Error displaying transformed normality plot", fmt["explanation"])
+                        row += 3
+                
+                if plot_paths['homoscedasticity_after']:
+                    ws.merge_range(f'A{row}:F{row}', f"📊 Variance Equality After {transformation} Transformation - Boxplots", fmt["key"])
+                    row += 1
+                    ws.merge_range(f'A{row}:F{row}', "Compare box heights with 'before transformation' plots to see if variances are more equal now.", fmt["explanation"])
+                    row += 2  # Extra space before image
+                    
+                    try:
+                        from PIL import Image
+                        with Image.open(plot_paths['homoscedasticity_after']) as img:
+                            width, height = img.size
+                            # More generous scaling - ensure plots are readable
+                            scale_factor = min(1.0, 1000 / width) if width > 1000 else 0.9
+                            ws.insert_image(row, 0, plot_paths['homoscedasticity_after'], 
+                                          {'x_scale': scale_factor, 'y_scale': scale_factor})
+                            # Calculate rows needed for image with padding
+                            image_rows = int((height * scale_factor) / 15) + 4  # Extra padding
+                            row += max(image_rows, 15)  # Minimum 15 rows for spacing
+                            
+                    except Exception as e:
+                        print(f"DEBUG: Error inserting transformed homoscedasticity plot: {e}")
+                        ws.write(row, 0, f"Error displaying transformed homoscedasticity plot", fmt["explanation"])
+                        row += 3
+                
+                # Add comparison guidance for transformation
+                if plot_paths['normality_after'] or plot_paths['homoscedasticity_after']:
+                    ws.merge_range(f'A{row}:F{row}', f"💡 COMPARING BEFORE vs AFTER {transformation.upper()} TRANSFORMATION:", fmt["key"])
+                    row += 1
+                    
+                    comparison_guide = (
+                        f"Now that you can see both sets of plots, compare them to evaluate the {transformation} transformation:\n\n"
+                        "✅ TRANSFORMATION SUCCESSFUL if:\n"
+                        "• Q-Q plots: Dots follow the red line more closely after transformation\n"
+                        "• Boxplots: Box heights are more similar across groups after transformation\n\n"
+                        "⚠️ TRANSFORMATION LESS EFFECTIVE if:\n"
+                        "• Q-Q plots: Still curved or scattered after transformation\n"
+                        "• Boxplots: Box heights still very different after transformation\n\n"
+                        f"The statistical tests above will use the {'TRANSFORMED' if results.get('test_type') == 'parametric' else 'ORIGINAL'} data "
+                        f"based on which version better meets the assumptions."
+                    )
+                    ws.merge_range(f'A{row}:F{row}', comparison_guide, fmt["explanation"])
+                    ws.set_row(row, ResultsExporter.get_text_height(comparison_guide, 30*6))
+                    row += 3  # Extra space after comparison guide
+                
+            except Exception as e:
+                print(f"DEBUG: Error generating after-transformation plots: {e}")
+                ws.write(row, 0, "Error generating after-transformation visual plots", fmt["explanation"])
+                row += 2
 
-            row += 1
+            row += 2  # Extra space before summary
         
             # Summary text
             row += 1
