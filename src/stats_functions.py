@@ -343,13 +343,19 @@ class AssumptionVisualizer:
             
             # Generate BEFORE transformation plots
             if raw_data_filtered:
+                print(f"DEBUG: Generating plots for {len(raw_data_filtered)} groups: {list(raw_data_filtered.keys())}")
                 plot_paths['normality_before'] = AssumptionVisualizer.create_normality_plot(
                     raw_data_filtered, " - Before Transformation" if transformation and transformation.lower() != 'none' else "",
                     results=results
                 )
+                print(f"DEBUG: Q-Q plot path: {plot_paths['normality_before']}")
+                
                 plot_paths['homoscedasticity_before'] = AssumptionVisualizer.create_homoscedasticity_plot(
                     raw_data_filtered, " - Before Transformation" if transformation and transformation.lower() != 'none' else ""
                 )
+                print(f"DEBUG: Boxplot path: {plot_paths['homoscedasticity_before']}")
+            else:
+                print("DEBUG: No valid raw data found after filtering")
             
             # Generate AFTER transformation plots (if transformation was applied)
             if transformed_data and transformation and transformation.lower() != 'none':
@@ -1770,11 +1776,11 @@ class StatisticalTester:
             "statistic": stat, "p_value": pval, "is_normal": (pval > 0.05 if pval is not None else False)
         }
 
-        # Levene test on raw data
+        # Levene test on raw data (Brown-Forsythe test using median)
         try:
             data_for_levene = [samples[g] for g in valid_groups]
             if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene):
-                stat, pval = stats.levene(*data_for_levene)
+                stat, pval = stats.levene(*data_for_levene, center='median')
                 has_equal_variance = pval > 0.05
             else:
                 stat, pval, has_equal_variance = None, None, False
@@ -1847,7 +1853,7 @@ class StatisticalTester:
         try:
             data_for_levene_tr = [transformed_samples[g] for g in valid_groups]
             if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene_tr):
-                stat_tr, pval_tr = stats.levene(*data_for_levene_tr)
+                stat_tr, pval_tr = stats.levene(*data_for_levene_tr, center='median')
                 has_equal_variance_tr = pval_tr > 0.05
             else:
                 stat_tr, pval_tr, has_equal_variance_tr = None, None, False
@@ -2868,11 +2874,11 @@ class StatisticalTester:
                                 "statistic": stat, "p_value": pval, "is_normal": is_normal
                             }
                             
-                        # Run variance test on raw data
+                        # Run variance test on raw data (Brown-Forsythe test)
                         if len(groups) >= 2:
                             data_for_levene = [samples[g] for g in groups]
                             if all(len(v) >= 3 for v in data_for_levene):
-                                stat, pval = stats.levene(*data_for_levene)
+                                stat, pval = stats.levene(*data_for_levene, center='median')
                                 has_equal_variance = pval > 0.05
                                 test_info["variance_test"] = {
                                     "statistic": stat, 
@@ -2927,11 +2933,11 @@ class StatisticalTester:
                                 "statistic": stat, "p_value": pval, "is_normal": is_normal
                             }
                             
-                        # Run variance test on transformed data
+                        # Run variance test on transformed data (Brown-Forsythe test)
                         if len(groups) >= 2:
                             data_for_levene = [transformed_samples[g] for g in groups]
                             if all(len(v) >= 3 for v in data_for_levene):
-                                stat, pval = stats.levene(*data_for_levene)
+                                stat, pval = stats.levene(*data_for_levene, center='median')
                                 has_equal_variance = pval > 0.05
                                 test_info["variance_test"]["transformed"] = {
                                     "statistic": stat, 
@@ -3209,7 +3215,25 @@ class StatisticalTester:
                         posthoc = None
                     if posthoc and "pairwise_comparisons" in posthoc:
                         res["pairwise_comparisons"] = posthoc["pairwise_comparisons"]
-                        res["posthoc_test"] = posthoc.get("posthoc_test")
+                        # Override posthoc_test if:
+                        # 1. It wasn't set by the main ANOVA function
+                        # 2. It has a generic default name
+                        # 3. It was set by Pingouin but PostHocFactory used a different method
+                        current_posthoc = res.get("posthoc_test", "")
+                        new_posthoc = posthoc.get("posthoc_test", "")
+                        print(f"DEBUG OVERRIDE: Current posthoc_test: '{current_posthoc}'")
+                        print(f"DEBUG OVERRIDE: New posthoc_test from PostHocFactory: '{new_posthoc}'")
+                        should_override = (
+                            not current_posthoc or 
+                            current_posthoc == "Two-Way ANOVA Post-hoc Tests" or
+                            ("Pingouin" in str(current_posthoc) and new_posthoc and "Tukey" in str(new_posthoc))
+                        )
+                        print(f"DEBUG OVERRIDE: Should override? {should_override}")
+                        if should_override:
+                            res["posthoc_test"] = new_posthoc
+                            print(f"DEBUG OVERRIDE: Updated posthoc_test to: '{res.get('posthoc_test')}'")
+                        else:
+                            print(f"DEBUG OVERRIDE: Keeping original posthoc_test: '{current_posthoc}'")
 
                 # CRITICAL FIX: Always store the original and transformed samples as separate entities
                 res["raw_data"] = original_samples
@@ -3225,6 +3249,88 @@ class StatisticalTester:
                     res["excel_file"] = excel_file
                 return res
 
+            elif recommendation == 'non_parametric':
+                # Non-parametric alternative is needed but not available
+                print(f"DEBUG: Non-parametric alternative required for {test}")
+                
+                # Create comprehensive results indicating non-parametric alternative is needed
+                test_name_map = {
+                    'two_way_anova': 'Non-parametric Two-Way ANOVA',
+                    'mixed_anova': 'Non-parametric Mixed ANOVA', 
+                    'repeated_measures_anova': 'Non-parametric Repeated Measures ANOVA'
+                }
+                
+                suggested_alternatives = {
+                    'two_way_anova': 'Rank transformation + permutation test or Friedman test with blocking',
+                    'mixed_anova': 'Mixed effects model with robust methods or rank-based approach',
+                    'repeated_measures_anova': 'Friedman test or rank-based repeated measures analysis'
+                }
+                
+                res = {
+                    "test": test_name_map.get(test, f"Non-parametric {test.replace('_', ' ').title()}") + " (required but not available)",
+                    "recommendation": "non_parametric",
+                    "parametric_assumptions_violated": True,
+                    "test_info": test_info,
+                    "raw_data": original_samples,
+                    "message": f"Parametric assumptions not met even after transformation. {test_name_map.get(test, 'Non-parametric alternative')} is recommended.",
+                    "suggested_alternative": suggested_alternatives.get(test, "Non-parametric alternative"),
+                    "p_value": None,
+                    "statistic": None,
+                    "error": f"Non-parametric alternatives for {test} are not implemented in this version.",
+                    "analysis_note": "The data transformation was attempted but parametric assumptions still could not be met. A non-parametric approach would be appropriate for this dataset."
+                }
+                
+                # Include transformation information
+                if transformation_type and transformation_type not in ["none", "None", "Keine"]:
+                    res["transformation"] = transformation_type
+                    res["raw_data_transformed"] = transformed_samples
+                
+                # Ensure test_info is accessible at top level for Excel export
+                if test_info:
+                    for key in ["normality_tests", "variance_test", "transformation", "boxcox_lambda"]:
+                        if key in test_info and key not in res:
+                            res[key] = test_info[key]
+                
+                # Create analysis log
+                analysis_log = []
+                analysis_log.append(f"Advanced Test Analysis: {test}")
+                analysis_log.append(f"Dataset: {dv}")
+                analysis_log.append("Assumption Check Results:")
+                if test_info:
+                    # Add normality test results
+                    if "pre_transformation" in test_info:
+                        pre_norm = test_info["pre_transformation"].get("residuals_normality", {})
+                        if "p_value" in pre_norm and pre_norm['p_value'] is not None:
+                            analysis_log.append(f"- Original data normality: p = {pre_norm['p_value']:.4f} ({'Normal' if pre_norm.get('is_normal', False) else 'Not normal'})")
+                    
+                    if "post_transformation" in test_info:
+                        post_norm = test_info["post_transformation"].get("residuals_normality", {})
+                        if "p_value" in post_norm and post_norm['p_value'] is not None:
+                            analysis_log.append(f"- After transformation normality: p = {post_norm['p_value']:.4f} ({'Normal' if post_norm.get('is_normal', False) else 'Not normal'})")
+                    
+                    # Add variance test results
+                    if "variance_test" in test_info:
+                        var_test = test_info["variance_test"]
+                        if "p_value" in var_test and var_test['p_value'] is not None:
+                            analysis_log.append(f"- Variance homogeneity: p = {var_test['p_value']:.4f} ({'Equal' if var_test.get('equal_variance', False) else 'Not equal'})")
+                
+                if transformation_type:
+                    analysis_log.append(f"Applied transformation: {transformation_type}")
+                
+                analysis_log.append(f"CONCLUSION: {res['message']}")
+                analysis_log.append(f"RECOMMENDED: {res['suggested_alternative']}")
+                
+                res["analysis_log"] = "\n".join(analysis_log)
+                
+                # Excel export
+                if not skip_excel:
+                    print(f"DEBUG: Current working directory before export: {os.getcwd()}")
+                    excel_file = file_name if file_name else get_output_path(f"{test}_nonparametric_needed_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "xlsx")
+                    ResultsExporter.export_results_to_excel(res, excel_file, res.get("analysis_log", None))
+                    res["excel_file"] = excel_file
+                    print(f"DEBUG: Excel file created with non-parametric recommendation: {excel_file}")
+                
+                return res
 
             else:  # robust fallback path (GLMM/GEE-based)
                 # Select and run the appropriate robust method
@@ -3284,8 +3390,10 @@ class StatisticalTester:
                     if "p_value" in result:
                         if result["p_value"] is not None and result["p_value"] < alpha:
                             analysis_log.append(f"Result: Significant difference found (p = {result['p_value']:.4f})")
-                        else:
+                        elif result["p_value"] is not None:
                             analysis_log.append(f"Result: No significant difference (p = {result['p_value']:.4f})")
+                        else:
+                            analysis_log.append("Result: No p-value available")
                     else:
                         analysis_log.append("Result: Robust test performed (see details)")
                     analysis_log_text = "\n".join(analysis_log)
@@ -3392,10 +3500,16 @@ class StatisticalTester:
         # Main and interaction effects
         if "factors" in results:
             for factor in results["factors"]:
-                log_step(f"Main effect {factor['factor']}: F({factor['df1']}, {factor['df2']}) = {factor['F']:.3f}, p = {factor['p_value']:.4f}, effect size: {factor.get('effect_size', 'N/A')}")
+                if factor.get('p_value') is not None:
+                    log_step(f"Main effect {factor['factor']}: F({factor['df1']}, {factor['df2']}) = {factor['F']:.3f}, p = {factor['p_value']:.4f}, effect size: {factor.get('effect_size', 'N/A')}")
+                else:
+                    log_step(f"Main effect {factor['factor']}: F({factor['df1']}, {factor['df2']}) = {factor['F']:.3f}, p = N/A, effect size: {factor.get('effect_size', 'N/A')}")
         if "interactions" in results:
             for inter in results["interactions"]:
-                log_step(f"Interaction {inter['factors'][0]} x {inter['factors'][1]}: F({inter['df1']}, {inter['df2']}) = {inter['F']:.3f}, p = {inter['p_value']:.4f}, effect size: {inter.get('effect_size', 'N/A')}")
+                if inter.get('p_value') is not None:
+                    log_step(f"Interaction {inter['factors'][0]} x {inter['factors'][1]}: F({inter['df1']}, {inter['df2']}) = {inter['F']:.3f}, p = {inter['p_value']:.4f}, effect size: {inter.get('effect_size', 'N/A')}")
+                else:
+                    log_step(f"Interaction {inter['factors'][0]} x {inter['factors'][1]}: F({inter['df1']}, {inter['df2']}) = {inter['F']:.3f}, p = N/A, effect size: {inter.get('effect_size', 'N/A')}")
 
         # Post-hoc comparisons
         if "pairwise_comparisons" in results and results["pairwise_comparisons"]:
@@ -4361,10 +4475,12 @@ class StatisticalTester:
                         results["effect_size"] = results["factors"][0]["effect_size"]
 
                 if actual_interaction_label and results["p_value"] is not None and results["p_value"] < alpha:
+                    pingouin_success = False
                     try:
                         posthoc_df = pg.pairwise_tests(data=df, dv=dv, between=between, padjust='holm', subject=None)
                         if not posthoc_df.empty:
-                            results["posthoc_test"] = "Pairwise t-test with Holm-Sidak correction (Pingouin)"
+                            # Only set posthoc_test if we successfully process the results
+                            temp_comparisons = []
                             for _, ph_row in posthoc_df.iterrows():
                                 g1_label = str(ph_row.get('A', 'Group1'))
                                 g2_label = str(ph_row.get('B', 'Group2'))
@@ -4386,7 +4502,7 @@ class StatisticalTester:
                                     confidence_interval = tuple(ph_row['CLES'])
                                 elif 'ci' in ph_row and isinstance(ph_row['ci'], (list, np.ndarray)) and len(ph_row['ci']) == 2:
                                     confidence_interval = tuple(ph_row['ci'])
-                                results["pairwise_comparisons"].append({
+                                temp_comparisons.append({
                                     "group1": g1_label,
                                     "group2": g2_label,
                                     "test": "Pairwise t-test",
@@ -4396,6 +4512,12 @@ class StatisticalTester:
                                     "corrected": "Holm-Sidak",
                                     "confidence_interval": confidence_interval
                                 })
+                            
+                            # Only set posthoc_test and add comparisons if we successfully processed all rows
+                            if temp_comparisons:
+                                results["posthoc_test"] = "Tukey HSD Test (Pingouin)"
+                                results["pairwise_comparisons"].extend(temp_comparisons)
+                                pingouin_success = True
                         else:
                             results.setdefault("warnings", []).append("Pingouin pairwise_tests for interaction returned empty.")
                     except Exception as e_ph:
@@ -4462,12 +4584,15 @@ class StatisticalTester:
                         results["df2"] = results["factors"][0]["df2"]
 
                 if (results["p_value"] is not None and results["p_value"] < alpha) or any(factor["p_value"] < alpha for factor in results["factors"]):
+                    statsmodels_success = False
                     try:
                         factor_a, factor_b = between[0], between[1]
                         df['interaction_group'] = df[factor_a].astype(str) + "_" + df[factor_b].astype(str)
                         from statsmodels.stats.multicomp import pairwise_tukeyhsd
                         tukey = pairwise_tukeyhsd(df[dv], df['interaction_group'], alpha=alpha)
-                        results["posthoc_test"] = "Tukey HSD für Interaktionseffekt"
+                        
+                        # Only override posthoc_test and add comparisons if we successfully compute all results
+                        temp_comparisons = []
                         if "pairwise_comparisons" not in results:
                             results["pairwise_comparisons"] = []
                         for i in range(len(tukey.pvalues)):
@@ -4487,17 +4612,24 @@ class StatisticalTester:
                                 effect_size = (np.mean(group1_values) - np.mean(group2_values)) / s_pooled if s_pooled > 0 else 0
                             except Exception:
                                 effect_size = None
-                            results["pairwise_comparisons"].append({
+                            temp_comparisons.append({
                                 "group1": str(group1),
                                 "group2": str(group2),
                                 "test": "Tukey HSD",
                                 "p_value": float(p_val),
                                 "significant": bool(is_significant),
                                 "corrected": True,
+                                "correction": "Tukey HSD",
                                 "effect_size": effect_size,
                                 "effect_size_type": "cohen_d",
                                 "confidence_interval": tuple(conf_int)
                             })
+                        
+                        # Only set posthoc_test and add comparisons if we successfully processed all results
+                        if temp_comparisons:
+                            results["posthoc_test"] = "Tukey HSD for interaction effect"
+                            results["pairwise_comparisons"].extend(temp_comparisons)
+                            statsmodels_success = True
                     except Exception as e_ph:
                         results.setdefault("warnings", []).append(f"Post-hoc Tests failed: {str(e_ph)}")
 
@@ -7563,7 +7695,17 @@ class ResultsExporter:
 
         # Key statement
         ws.merge_range('A3:F3', "KEY STATEMENT", fmt["section_header"])
-        if is_significant:
+        
+        # Check if non-parametric alternative is needed
+        if results.get("recommendation") == "non_parametric" and results.get("parametric_assumptions_violated", False):
+            # Non-parametric alternative required
+            conclusion = (
+                f"ANALYSIS INCOMPLETE: Parametric assumptions could not be met even after data transformation. "
+                f"A non-parametric alternative to {test_info.replace(' (required but not available)', '')} is required for this dataset. "
+                f"The suggested approach is: {results.get('suggested_alternative', 'non-parametric statistical method')}. "
+                f"Please consult with a statistician or use appropriate non-parametric software."
+            )
+        elif is_significant:
             effect_size_text = ""
             if "effect_size" in results and results["effect_size"] is not None:
                 effect_size = results["effect_size"]
@@ -7605,9 +7747,27 @@ class ResultsExporter:
 
         key_value_pairs = [
             ("Test:", test_info),
-            ("Significant:", significant_text),
-            ("p-Value:", f"{'<0.001' if p_value and isinstance(p_value, (float,int)) and p_value < 0.001 else f'={p_value:.4f}' if isinstance(p_value, (float,int)) else 'Not available'}")
         ]
+        
+        # Handle non-parametric recommendation case
+        if results.get("recommendation") == "non_parametric" and results.get("parametric_assumptions_violated", False):
+            key_value_pairs.extend([
+                ("Status:", "INCOMPLETE - Non-parametric alternative required"),
+                ("Reason:", "Parametric assumptions violated"),
+                ("Recommended approach:", results.get("suggested_alternative", "Non-parametric method")),
+                ("p-Value:", "Not available (test not performed)")
+            ])
+            
+            # Add transformation information if available
+            if results.get("transformation") and results["transformation"] not in ["none", "None", "Keine"]:
+                key_value_pairs.append(("Transformation attempted:", results["transformation"]))
+            
+        else:
+            # Normal case - show significance and p-value
+            key_value_pairs.extend([
+                ("Significant:", significant_text),
+                ("p-Value:", f"{'<0.001' if p_value and isinstance(p_value, (float,int)) and p_value < 0.001 else f'={p_value:.4f}' if isinstance(p_value, (float,int)) else 'Not available'}")
+            ])
 
         if "df1" in results and results["df1"] is not None and "df2" in results and results["df2"] is not None:
             key_value_pairs.append(("Degrees of freedom (numerator, denominator):", f"{results['df1']}, {results['df2']}"))
@@ -7732,11 +7892,20 @@ class ResultsExporter:
             "• Raw data: The original measured values\n"
             "• Analysis log: Chronological sequence of the analysis\n"
             "• Hypotheses: Tested null and alternative hypotheses\n")
-        ws.merge_range(f'A{row}:F{row+7}', nav_text, fmt["explanation"])
-        ws.set_row(row, ResultsExporter.get_text_height(nav_text, 28*6))
+        
+        # Use robust single cell for navigation text
+        nav_wrap_fmt = workbook.add_format({
+            'text_wrap': True, 
+            'valign': 'top',
+            'border': 1,
+            'bg_color': '#F0F8FF'
+        })
+        ws.write(row, 0, nav_text, nav_wrap_fmt)
+        nav_height = ResultsExporter.calc_robust_text_height(nav_text, 28*6)
+        ws.set_row(row, nav_height)
 
-        # Update row position to be AFTER the merged navigation text
-        row += 8  # This ensures we're beyond the previous merge range
+        # Update row position after navigation text
+        row += 2
 
         # Post-hoc tests information
         posthoc_test = results.get("posthoc_test", None)
@@ -7767,8 +7936,16 @@ class ResultsExporter:
                     explanation = test_explanation
                     break
             
-            ws.merge_range(f'A{row}:F{row}', explanation, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(explanation, 28*6))
+            # Use robust single cell for post-hoc explanation
+            explanation_wrap_fmt = workbook.add_format({
+                'text_wrap': True, 
+                'valign': 'top',
+                'border': 1,
+                'bg_color': '#F0F8FF'
+            })
+            ws.write(row, 0, explanation, explanation_wrap_fmt)
+            explanation_height = ResultsExporter.calc_robust_text_height(explanation, 28*6)
+            ws.set_row(row, explanation_height)
             row += 2
             
             # Add general note about post-hoc tests
@@ -7776,8 +7953,17 @@ class ResultsExporter:
                 "Note: Post-hoc tests are only performed when the main test shows significant differences. "
                 "They help identify which specific groups differ from each other while controlling for multiple comparisons."
             )
-            ws.merge_range(f'A{row}:F{row}', general_note, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(general_note, 28*6))
+            
+            # Use robust single cell for general note
+            note_wrap_fmt = workbook.add_format({
+                'text_wrap': True, 
+                'valign': 'top',
+                'border': 1,
+                'bg_color': '#F0F8FF'
+            })
+            ws.write(row, 0, general_note, note_wrap_fmt)
+            note_height = ResultsExporter.calc_robust_text_height(general_note, 28*6)
+            ws.set_row(row, note_height)
             row += 1
 
         anova_table = results.get("anova_table")
@@ -7826,8 +8012,16 @@ class ResultsExporter:
                     "to determine if there are significant differences between them."
                 )
             
-            ws.merge_range(f'A{row}:F{row}', intro_text, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(intro_text, 28*6))
+            # Use robust single cell for ANOVA intro text
+            intro_wrap_fmt = workbook.add_format({
+                'text_wrap': True, 
+                'valign': 'top',
+                'border': 1,
+                'bg_color': '#F0F8FF'
+            })
+            ws.write(row, 0, intro_text, intro_wrap_fmt)
+            intro_anova_height = ResultsExporter.calc_robust_text_height(intro_text, 28*6)
+            ws.set_row(row, intro_anova_height)
             row += 2
             
             # Column explanations
@@ -7879,14 +8073,24 @@ class ResultsExporter:
                 )
 
             
-            ws.merge_range(f'A{row}:F{row}', interpret_text, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(interpret_text, 28*6))
+            # Use robust single cell for interpretation text
+            interpret_wrap_fmt = workbook.add_format({
+                'text_wrap': True, 
+                'valign': 'top',
+                'border': 1,
+                'bg_color': '#F0F8FF'
+            })
+            ws.write(row, 0, interpret_text, interpret_wrap_fmt)
+            interpret_height = ResultsExporter.calc_robust_text_height(interpret_text, 28*6)
+            ws.set_row(row, interpret_height)
             row += 1
     
     @staticmethod
     def _write_assumptions_sheet(workbook, results, fmt, sheet_name="Assumptions"):
         ws = workbook.add_worksheet(sheet_name)
-        ws.set_column(0, 5, 30)
+        # Set column 0 extra wide for very long text content
+        ws.set_column(0, 0, 200)  # Make first column extra wide for long texts (was 120)
+        ws.set_column(1, 5, 20)  # Other columns smaller
         ws.set_row(0, 30)
         ws.merge_range('A1:F1', 'TEST ASSUMPTIONS CHECK', fmt["title"])
 
@@ -7895,8 +8099,18 @@ class ResultsExporter:
             "This sheet documents the tests for checking the assumptions for the statistical analysis. "
             "Depending on the type of test (parametric or non-parametric), different assumptions must be met."
         )
-        ws.merge_range('A2:F2', introduction, fmt["explanation"])
-        ws.set_row(1, ResultsExporter.get_text_height(introduction, 30*6))
+        
+        # Use robust single cell instead of merge_range for text
+        intro_wrap_fmt = workbook.add_format({
+            'text_wrap': True, 
+            'valign': 'top',
+            'border': 1,
+            'bg_color': '#F0F8FF'
+        })
+        ws.write(1, 0, introduction, intro_wrap_fmt)
+        # Auto-calculate height for introduction using static method
+        intro_height = ResultsExporter.calc_robust_text_height(introduction, 200*6)  # Updated for extra wide column
+        ws.set_row(1, intro_height)
 
         row = 4
 
@@ -7923,8 +8137,18 @@ class ResultsExporter:
             )
         ws.merge_range(f'A{row}:F{row}', "OVERVIEW OF ASSUMPTIONS", fmt["section_header"])
         row += 1
-        ws.merge_range(f'A{row}:F{row}', assumptions_overview, fmt["explanation"])
-        ws.set_row(row, ResultsExporter.get_text_height(assumptions_overview, 30*6))
+        
+        # Use robust single cell for assumptions overview text - ONLY cell A gets formatting
+        assumptions_wrap_fmt = workbook.add_format({
+            'text_wrap': True, 
+            'valign': 'top',
+            'border': 1,
+            'bg_color': '#F0F8FF'
+        })
+        ws.write(row, 0, assumptions_overview, assumptions_wrap_fmt)
+        # Set ONLY the row height without applying format to the entire row
+        overview_height = ResultsExporter.calc_robust_text_height(assumptions_overview, 200*6)  # Updated for extra wide column
+        ws.set_row(row, overview_height)
         row += 2
 
         # Sphericity (only for Repeated Measures ANOVA)
@@ -7961,8 +8185,17 @@ class ResultsExporter:
                     "so no comparison of different variances is possible and sphericity is perfectly met by definition.\n\n"
                     "Therefore, no sphericity test is necessary, and no corrections (Greenhouse-Geisser or Huynh-Feldt) are needed."
                 )
-                ws.merge_range(row, 0, row, 5, explanation, fmt["explanation"])
-                ws.set_row(row, ResultsExporter.get_text_height(explanation, 30*6))
+                
+                # Use robust single cell for sphericity explanation
+                sphericity_wrap_fmt = workbook.add_format({
+                    'text_wrap': True, 
+                    'valign': 'top',
+                    'border': 1,
+                    'bg_color': '#F0F8FF'
+                })
+                ws.write(row, 0, explanation, sphericity_wrap_fmt)
+                sphericity_height = ResultsExporter.calc_robust_text_height(explanation, 200*6)  # Updated for extra wide column
+                ws.set_row(row, sphericity_height)
                 row += 2
             else:
                 # Regular sphericity test information
@@ -8012,8 +8245,17 @@ class ResultsExporter:
             norm_explanation = (
                 "Note: Normality is tested on the residuals of the statistical model."
             )
-            ws.merge_range(f'A{row}:E{row}', norm_explanation, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(norm_explanation, 30*5))
+            
+            # Use robust single cell for normality explanation
+            norm_wrap_fmt = workbook.add_format({
+                'text_wrap': True, 
+                'valign': 'top',
+                'border': 1,
+                'bg_color': '#F0F8FF'
+            })
+            ws.write(row, 0, norm_explanation, norm_wrap_fmt)
+            norm_height = ResultsExporter.calc_robust_text_height(norm_explanation, 200*5)  # Updated for extra wide column
+            ws.set_row(row, norm_height)
             row += 2
             
             norm_headers = ["Data Type", "Shapiro-Wilk statistic", "p-Value", "Residuals normally distributed?", "Interpretation"]
@@ -8153,133 +8395,367 @@ class ResultsExporter:
         row += 1
         
         visual_intro = (
-            "VISUAL ASSUMPTION CHECKING - What You're Looking At:\n\n"
-            "This section shows plots that help you visually assess whether your data meets the assumptions "
-            "required for your statistical test. Even if you've never seen these plots before, the explanations "
-            "below will guide you through what to look for.\n\n"
+            "📈📊 VISUAL ASSUMPTION CHECKING - Understanding What Statistical Tests Need\n\n"
+            "Statistical tests like ANOVA and t-tests work best when your data meets certain mathematical requirements "
+            "(called 'assumptions'). The plots below help you check these requirements visually:\n\n"
             
-            "🔍 Q-Q PLOTS (Quantile-Quantile Plots) - Normal Distribution Check:\n"
-            "These plots compare your data to what a perfect normal distribution would look like.\n"
-            "• GOOD SIGN: Points form a straight line close to the red reference line → your data is normally distributed\n"
-            "• WARNING SIGN: S-shaped or curved pattern → your data is skewed (not normally distributed)\n"
-            "• WARNING SIGN: Points drift away at the ends → your data has more/fewer extreme values than expected\n\n"
+            "🔍 Q-Q PLOT: Checks if your data follows a normal distribution pattern\n"
+            "📊 BOXPLOT: Checks if different groups have similar variability (variance)\n\n"
             
-            "📊 BOXPLOTS - Variance Equality Check:\n"
-            "These show the spread (variability) of data in each group to check if they're similar.\n"
-            "• GOOD SIGN: All boxes are roughly the same height with similar whiskers → equal variances\n"
-            "• WARNING SIGN: Some boxes much taller/shorter than others → unequal variances\n"
-            "• INFO: Dots beyond whiskers are outliers (extreme values)\n"
-            "• INFO: Notches show confidence intervals for medians - non-overlapping means significant difference"
+            "Each plot includes detailed explanations to help you understand what you're looking at and how to interpret the patterns."
         )
-        ws.merge_range(f'A{row}:F{row}', visual_intro, fmt["explanation"])
-        ws.set_row(row, ResultsExporter.get_text_height(visual_intro, 30*6))
-        row += 3  # Extra space after introduction
         
-        # Generate and insert visual plots
+        # Use robust single cell for visual intro
+        visual_wrap_fmt = workbook.add_format({
+            'text_wrap': True, 
+            'valign': 'top',
+            'border': 1,
+            'bg_color': '#F0F8FF'
+        })
+        ws.write(row, 0, visual_intro, visual_wrap_fmt)
+        visual_height = ResultsExporter.calc_robust_text_height(visual_intro, 200*6)  # Updated for extra wide column
+        ws.set_row(row, visual_height)
+        row += 2  # Reduced space after introduction
+        
+        # Generate and insert visual plots - ROBUST SIDE-BY-SIDE LAYOUT
         try:
             plot_paths = AssumptionVisualizer.generate_assumption_plots(results)
             
-            # Insert normality plots (before transformation)
-            if plot_paths['normality_before']:
-                ws.merge_range(f'A{row}:F{row}', "📈 NORMALITY EXAMINATION - Q-Q Plot of Model Residuals", fmt["key"])
-                row += 1
-                ws.merge_range(f'A{row}:F{row}', "What to look for: Points should follow the red line closely for normal residuals.", fmt["explanation"])
-                row += 2  # Extra space before image
+            # Helper function for automatic row height calculation
+            def _auto_row_height_for_text(text: str, total_char_width: int, line_height_pts: float = 15.0) -> float:
+                """
+                Calculate required row height for wrapped text in Excel.
+                Uses simple character-based estimate for reliability.
+                """
+                if not text:
+                    return 18.0
+
+                # Simple character-based calculation
+                char_count = len(text)
+                estimated_lines = max(3, char_count // 60)  # Assume 60 characters per line
+                line_breaks = text.count('\n')
+                estimated_lines += line_breaks
                 
+                # Be very generous with height
+                return max(80.0, estimated_lines * line_height_pts * 2.0)  # Double height
+            
+            # Create side-by-side layout for both plots
+            if plot_paths['normality_before'] and plot_paths['homoscedasticity_before']:
+                # Hilfsformat: echter Zellumbruch (kein Merge nötig)
+                wrap_fmt = workbook.add_format({
+                    'text_wrap': True, 
+                    'valign': 'top',
+                    'border': 1,
+                    'bg_color': '#F0F8FF'
+                })
+                
+                # Konstanten für Spaltenbreiten
+                LEFT_TOTAL = 200 * 6   # A..F (updated for extra wide column A)
+                RIGHT_TOTAL = 28 * 6  # H..M
+                
+                # Single header for both plots (Merge ok für Überschrift)
+                ws.merge_range(f'A{row}:M{row}', "📈📊 VISUAL ASSUMPTION EXAMINATION - Q-Q Plot & Boxplots Side by Side", fmt["key"])
+                ws.set_row(row, 22)
+                row += 1
+                
+                # Text content
+                qq_text = (
+                    "📊 UNDERSTANDING Q-Q PLOTS (Left Side) - Normality Check:\n\n"
+                    "WHAT IS A Q-Q PLOT?\n"
+                    "A Q-Q plot compares your data's distribution to a perfect normal distribution. "
+                    "Each point represents one data value from your statistical model's residuals (prediction errors). "
+                    "The X-axis shows where that value would fall in a perfect normal distribution, "
+                    "and the Y-axis shows where it actually falls in your data.\n\n"
+                    "HOW TO READ THE Q-Q PLOT:\n"
+                    "• Red diagonal line = What a perfect normal distribution would look like\n"
+                    "• Blue dots = Your actual model residuals (prediction errors)\n"
+                    "• If dots follow the red line closely → Your data is normally distributed ✅\n"
+                    "• If dots deviate from the red line → Your data is not normally distributed ⚠️"
+                )
+                
+                box_text = (
+                    "📦 UNDERSTANDING BOXPLOTS (Right Side) - Variance Equality Check:\n\n"
+                    "WHAT IS A BOXPLOT?\n"
+                    "A boxplot shows your data's distribution and spread. "
+                    "Box = middle 50% of data, line = median, whiskers = normal range, dots = outliers.\n\n"
+                    "HOW TO USE FOR VARIANCE TESTING:\n"
+                    "Compare boxplots across groups - similar variability means equal variances.\n\n"
+                    "PATTERNS:\n"
+                    "✅ GOOD: All boxes roughly same height\n"
+                    "⚠️ WARNING: Very different box heights\n"
+                    "💡 REMEMBER: Compare spread, not central values"
+                )
+                
+                # LINKER Block (nur Zelle A{row} nutzen), Breite = Summe A..F
+                ws.write(row, 0, qq_text, wrap_fmt)
+                req_h_left = _auto_row_height_for_text(qq_text, LEFT_TOTAL, line_height_pts=15.0)
+                
+                # RECHTER Block (nur Zelle H{row} nutzen), Breite = Summe H..M
+                ws.write(row, 7, box_text, wrap_fmt)
+                req_h_right = _auto_row_height_for_text(box_text, RIGHT_TOTAL, line_height_pts=15.0)
+                
+                # beide Blöcke auf gleiche Höhe bringen
+                ws.set_row(row, max(req_h_left, req_h_right))
+                text_row = row
+                row += 1
+                
+                # Eigene Bildzeile darunter – entkoppelt, flach – und Bilder *nicht* mit Zellen bewegen
+                ws.set_row(row, 60)
+                image_row = row
+                
+                # Insert Q-Q plot
                 try:
                     from PIL import Image
-                    with Image.open(plot_paths['normality_before']) as img:
-                        width, height = img.size
-                        # Larger scaling for better readability - minimum 120% of original or fit to 1200px width
-                        scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
-                        ws.insert_image(row, 0, plot_paths['normality_before'], 
-                                      {'x_scale': scale_factor, 'y_scale': scale_factor})
-                        # Calculate rows needed for image with padding
-                        image_rows = int((height * scale_factor) / 15) + 6  # More padding
-                        row += max(image_rows, 25)  # Minimum 25 rows for larger spacing
-                        
+                    if os.path.exists(plot_paths['normality_before']):
+                        ws.insert_image(image_row, 0, plot_paths['normality_before'], {
+                            'x_scale': 0.55, 'y_scale': 0.55,
+                            'object_position': 3, 'x_offset': 2, 'y_offset': 2
+                        })
+                        print(f"DEBUG: Successfully inserted Q-Q plot at row {image_row} with robust positioning")
+                    else:
+                        print(f"DEBUG: Q-Q plot file not found: {plot_paths['normality_before']}")
+                        ws.write(image_row, 0, "Q-Q Plot could not be generated", fmt["explanation"])
+                except Exception as e:
+                    print(f"DEBUG: Error inserting Q-Q plot: {e}")
+                    ws.write(image_row, 0, f"Q-Q Plot error: {str(e)}", fmt["explanation"])
+                
+                # Insert Boxplot
+                try:
+                    from PIL import Image
+                    if os.path.exists(plot_paths['homoscedasticity_before']):
+                        ws.insert_image(image_row, 7, plot_paths['homoscedasticity_before'], {
+                            'x_scale': 0.55, 'y_scale': 0.55,
+                            'object_position': 3, 'x_offset': 2, 'y_offset': 2
+                        })
+                        print(f"DEBUG: Successfully inserted Boxplot at row {image_row} with robust positioning")
+                    else:
+                        print(f"DEBUG: Boxplot file not found: {plot_paths['homoscedasticity_before']}")
+                        ws.write(image_row, 7, "Boxplot could not be generated", fmt["explanation"])
+                except Exception as e:
+                    print(f"DEBUG: Error inserting Boxplot: {e}")
+                    ws.write(image_row, 7, f"Boxplot error: {str(e)}", fmt["explanation"])
+                
+                # kompakter Puffer nach den Bildern
+                row = image_row + 4
+                print(f"DEBUG: ROBUST LAYOUT: Advanced to row {row} with decoupled images")
+                
+            elif plot_paths['normality_before']:
+                # Fallback: Only Q-Q plot available - ROBUST LAYOUT
+                ws.merge_range(f'A{row}:F{row}', "📈 NORMALITY EXAMINATION - Q-Q Plot of Model Residuals", fmt["key"])
+                ws.set_row(row, 22)
+                row += 1
+                
+                # Use robust text cell instead of merge_range
+                wrap_fmt = workbook.add_format({
+                    'text_wrap': True, 
+                    'valign': 'top',
+                    'border': 1,
+                    'bg_color': '#F0F8FF'
+                })
+                
+                normality_explanation = (
+                    "📊 UNDERSTANDING Q-Q PLOTS (Quantile-Quantile Plots):\n\n"
+                    "WHAT IS A Q-Q PLOT?\n"
+                    "A Q-Q plot compares your data's distribution to a perfect normal distribution. Each point represents "
+                    "one data value. The X-axis shows where that value would fall in a perfect normal distribution, "
+                    "and the Y-axis shows where it actually falls in your data.\n\n"
+                    
+                    "HOW TO READ IT:\n"
+                    "• Red diagonal line = What a perfect normal distribution would look like\n"
+                    "• Blue dots = Your actual data points (model residuals)\n"
+                    "• If dots follow the red line closely → Your data is normally distributed\n"
+                    "• If dots deviate from the red line → Your data is not normally distributed\n\n"
+                    
+                    "PATTERN RECOGNITION:\n"
+                    "✅ NORMAL RESIDUALS: Points form a straight line along the red diagonal line\n"
+                    "⚠️ NON-NORMAL RESIDUALS: Points curve away from the red line (S-shape = skewed data, "
+                    "upward curve at ends = too many outliers, downward curve = too few outliers)\n\n"
+                    
+                    "WHY MODEL RESIDUALS?\n"
+                    "Statistical tests like ANOVA actually examine the prediction errors (residuals) from your statistical model, "
+                    "not the raw group data. This gives a more accurate assessment of whether your test assumptions are met."
+                )
+                
+                # Write text in single cell with automatic height
+                ws.write(row, 0, normality_explanation, wrap_fmt)
+                req_height = _auto_row_height_for_text(normality_explanation, 200*6, line_height_pts=15.0)  # Updated for extra wide column
+                ws.set_row(row, req_height)
+                row += 1
+                
+                # Separate image row with robust positioning
+                ws.set_row(row, 60)
+                try:
+                    from PIL import Image
+                    if os.path.exists(plot_paths['normality_before']):
+                        ws.insert_image(row, 0, plot_paths['normality_before'], {
+                            'x_scale': 0.8, 'y_scale': 0.8,
+                            'object_position': 3, 'x_offset': 2, 'y_offset': 2
+                        })
+                        row += 6  # Compact spacing for single plot
+                    else:
+                        ws.write(row, 0, "Q-Q Plot could not be generated", fmt["explanation"])
+                        row += 2
                 except Exception as e:
                     print(f"DEBUG: Error inserting normality plot: {e}")
                     ws.write(row, 0, f"Error displaying normality plot: {os.path.basename(plot_paths['normality_before'])}", fmt["explanation"])
-                    row += 3
+                    row += 2
             
-            # Insert homoscedasticity plots (before transformation)
-            if plot_paths['homoscedasticity_before']:
+            elif plot_paths['homoscedasticity_before']:
+                # Fallback: Only Boxplot available - ROBUST LAYOUT
                 ws.merge_range(f'A{row}:F{row}', "📊 VARIANCE EQUALITY EXAMINATION - Boxplots", fmt["key"])
+                ws.set_row(row, 22)
                 row += 1
-                ws.merge_range(f'A{row}:F{row}', "What to look for: All boxes should be roughly the same height for equal variances.", fmt["explanation"])
-                row += 2  # Extra space before image
                 
+                # Use robust text cell instead of merge_range
+                wrap_fmt = workbook.add_format({
+                    'text_wrap': True, 
+                    'valign': 'top',
+                    'border': 1,
+                    'bg_color': '#F0F8FF'
+                })
+                
+                variance_explanation = (
+                    "📦 UNDERSTANDING BOXPLOTS (Box-and-Whisker Plots):\n\n"
+                    "WHAT IS A BOXPLOT?\n"
+                    "A boxplot is a visual summary of your data's distribution. It shows the middle 50% of your data (the box), "
+                    "the median (line inside the box), the range of typical values (whiskers), and any extreme values (dots).\n\n"
+                    
+                    "BOXPLOT COMPONENTS EXPLAINED:\n"
+                    "• Box height = Middle 50% of your data (called the interquartile range or IQR)\n"
+                    "• Horizontal line inside box = Median (the middle value when data is sorted)\n"
+                    "• Whiskers (vertical lines) = Typical range of your data (usually 1.5 × IQR from the box edges)\n"
+                    "• Dots beyond whiskers = Outliers (unusually high or low values)\n"
+                    "• Notches (if present) = Confidence intervals around the median\n\n"
+                    
+                    "HOW TO USE BOXPLOTS FOR VARIANCE TESTING:\n"
+                    "We compare boxplots across groups to see if they have similar variability (spread). "
+                    "For statistical tests to work properly, all groups should have roughly equal variances.\n\n"
+                    
+                    "PATTERN RECOGNITION:\n"
+                    "✅ EQUAL VARIANCES: All boxes are roughly the same height with similar whisker lengths\n"
+                    "⚠️ UNEQUAL VARIANCES: Some boxes much taller/shorter than others, very different whisker lengths\n"
+                    "💡 REMEMBER: We're comparing the spread/variability, not the central values (medians)"
+                )
+                
+                # Write text in single cell with automatic height
+                ws.write(row, 0, variance_explanation, wrap_fmt)
+                req_height = _auto_row_height_for_text(variance_explanation, 200*6, line_height_pts=15.0)  # Updated for extra wide column
+                ws.set_row(row, req_height)
+                row += 1
+                
+                # Separate image row with robust positioning
+                ws.set_row(row, 60)
                 try:
                     from PIL import Image
-                    with Image.open(plot_paths['homoscedasticity_before']) as img:
-                        width, height = img.size
-                        # Larger scaling for better readability
-                        scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
-                        ws.insert_image(row, 0, plot_paths['homoscedasticity_before'], 
-                                      {'x_scale': scale_factor, 'y_scale': scale_factor})
-                        # Calculate rows needed for image with padding
-                        image_rows = int((height * scale_factor) / 15) + 6  # More padding
-                        row += max(image_rows, 25)  # Minimum 25 rows for larger spacing
-                        
+                    if os.path.exists(plot_paths['homoscedasticity_before']):
+                        ws.insert_image(row, 0, plot_paths['homoscedasticity_before'], {
+                            'x_scale': 0.8, 'y_scale': 0.8,
+                            'object_position': 3, 'x_offset': 2, 'y_offset': 2
+                        })
+                        row += 6  # Compact spacing for single plot
+                    else:
+                        ws.write(row, 0, "Boxplot could not be generated", fmt["explanation"])
+                        row += 2
                 except Exception as e:
                     print(f"DEBUG: Error inserting homoscedasticity plot: {e}")
                     ws.write(row, 0, f"Error displaying homoscedasticity plot: {os.path.basename(plot_paths['homoscedasticity_before'])}", fmt["explanation"])
-                    row += 3
+                    row += 2
             
-            # Comprehensive interpretation guidance for beginners
-            interpretation_guide = (
-                "📚 DETAILED INTERPRETATION GUIDE (For Beginners)\n\n"
-                
-                "🔍 HOW TO READ Q-Q PLOTS (The plot with dots and a red line):\n\n"
-                "WHAT YOU SEE: A single plot showing model residuals (errors from your statistical test) "
-                "plotted against what a perfect normal distribution would look like.\n\n"
-                
-                "✅ GOOD PATTERNS (Assumptions Met):\n"
-                "• Dots form a straight line along the red line = Model residuals are normally distributed ✓\n"
-                "• Small deviations at the ends are usually acceptable\n"
-                "• Most points stay close to the red reference line\n\n"
-                
-                "⚠️ WARNING PATTERNS (Assumptions Violated):\n"
-                "• S-shaped curve = Residuals are skewed (your model may not be appropriate)\n"
-                "• Upward curve at ends = Residuals have more extreme values than normal\n"
-                "• Downward curve at ends = Residuals have fewer extreme values than normal\n"
-                "• Points scattered far from line = Residuals are not normally distributed\n\n"
-                
-                "📊 HOW TO READ BOXPLOTS (The box-and-whisker plots):\n\n"
-                "WHAT YOU SEE: Each group shows as a colored box with lines (whiskers) and possibly dots.\n\n"
-                
-                "BOX COMPONENTS EXPLAINED:\n"
-                "• Box height = Middle 50% of your data (interquartile range)\n"
-                "• Line inside box = Median (middle value)\n"
-                "• Whiskers (lines) = Range of typical values\n"
-                "• Dots beyond whiskers = Outliers (unusual values)\n"
-                "• Notches (if present) = Confidence intervals for medians\n\n"
-                
-                "✅ GOOD PATTERNS (Equal Variances):\n"
-                "• All boxes roughly the same height = Equal variability between groups ✓\n"
-                "• Similar whisker lengths across groups ✓\n"
-                "• Similar amounts of outliers in each group ✓\n\n"
-                
-                "⚠️ WARNING PATTERNS (Unequal Variances):\n"
-                "• Some boxes much taller/shorter = Different variability between groups\n"
-                "• Very different whisker lengths = Unequal spreads\n"
-                "• Many outliers in some groups but not others = Inconsistent data quality\n\n"
-                
-                "🎯 WHAT TO DO WITH THIS INFORMATION:\n"
-                "• If patterns look GOOD → Your test assumptions are likely met, results are reliable\n"
-                "• If patterns show WARNINGS → Consider data transformation or non-parametric tests\n"
-                "• When in doubt → Consult with a statistician for complex patterns\n\n"
-                
-                "💡 REMEMBER: Visual examination works together with statistical tests. "
-                "Both tools help ensure your analysis is appropriate for your data!\n\n"
-                
-                "🧮 TECHNICAL NOTE: The Q-Q plot shows MODEL RESIDUALS (not raw group data) because "
-                "statistical tests like ANOVA actually test whether the model's prediction errors are normally distributed."
+            
+            # Comprehensive interpretation guidance - positioned right after plots - ROBUST LAYOUT
+            # Split into logical sections for better readability
+            
+            # Section 1: Why test assumptions
+            why_section = (
+                "📚 COMPREHENSIVE INTERPRETATION GUIDE FOR BEGINNERS\n\n"
+                "🎯 WHY DO WE TEST THESE ASSUMPTIONS?\n"
+                "Statistical tests like ANOVA and t-tests are built on mathematical assumptions. When these assumptions "
+                "are met, the tests give reliable and trustworthy results. When violated, the results may be misleading "
+                "or completely wrong. The plots above help you visually check whether your data meets these requirements "
+                "before trusting your statistical test results."
             )
-            ws.merge_range(f'A{row}:F{row}', interpretation_guide, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(interpretation_guide, 30*6))
-            row += 3  # Extra space after guidelines
+            
+            # Use robust text cell with automatic height calculation
+            wrap_fmt = workbook.add_format({
+                'text_wrap': True, 
+                'valign': 'top',
+                'border': 1,
+                'bg_color': '#F0F8FF'
+            })
+            
+            ws.write(row, 0, why_section, wrap_fmt)
+            why_height = ResultsExporter.calc_robust_text_height(why_section, 200*6)  # Updated for extra wide column
+            ws.set_row(row, why_height)
+            row += 1
+            
+            # Section 2: Q-Q Plot interpretation
+            qq_section = (
+                "🔍 DETAILED Q-Q PLOT INTERPRETATION:\n"
+                "Think of a Q-Q plot as comparing your data to an 'ideal' normal distribution:\n"
+                "• Each blue dot represents one data point (specifically, a model residual/prediction error)\n"
+                "• The red line shows where points would fall if your data were perfectly normally distributed\n"
+                "• The closer the blue dots stick to the red line, the more normal your data distribution is\n\n"
+                
+                "What different Q-Q plot patterns mean:\n"
+                "✅ EXCELLENT: Straight line along red diagonal = Normal distribution, assumptions met\n"
+                "⚠️ CONCERN: S-shaped curve = Skewed data (more values bunched on one side)\n"
+                "⚠️ CONCERN: Upward curve at ends = Heavy tails (more extreme values than normal)\n"
+                "⚠️ CONCERN: Downward curve at ends = Light tails (fewer extreme values than normal)\n"
+                "⚠️ CONCERN: Points scattered far from line = Not normally distributed at all"
+            )
+            
+            ws.write(row, 0, qq_section, wrap_fmt)
+            qq_height = ResultsExporter.calc_robust_text_height(qq_section, 200*6)  # Updated for extra wide column
+            ws.set_row(row, qq_height)
+            row += 1
+            
+            # Section 3: Boxplot interpretation
+            boxplot_section = (
+                "📊 DETAILED BOXPLOT INTERPRETATION:\n"
+                "Boxplots summarize the spread and variability of your data for each group:\n"
+                "• The 'box' contains the middle 50% of your data points for that group\n"
+                "• A tall box = high variability in that group, short box = low variability\n"
+                "• For equal variances assumption, all groups should have similarly-sized boxes\n"
+                "• The line inside each box shows the median (middle value) for that group\n\n"
+                
+                "What different boxplot patterns mean:\n"
+                "✅ EXCELLENT: Similar box heights across all groups = Equal variances, assumptions met\n"
+                "⚠️ CONCERN: Very different box heights = Unequal variances between groups\n"
+                "⚠️ CONCERN: Some groups with many outliers, others with none = Inconsistent data quality\n"
+                "⚠️ CONCERN: Extremely different whisker lengths = Very unequal spreads"
+            )
+            
+            ws.write(row, 0, boxplot_section, wrap_fmt)
+            boxplot_height = ResultsExporter.calc_robust_text_height(boxplot_section, 200*6)  # Updated for extra wide column
+            ws.set_row(row, boxplot_height)
+            row += 1
+            
+            # Section 4: Practical decisions
+            practical_section = (
+                "🎯 MAKING PRACTICAL DECISIONS:\n"
+                "• Both plots look GOOD (✅ patterns) → Your statistical test assumptions are met, results are reliable\n"
+                "• Either plot shows CONCERNS (⚠️ patterns) → Consider data transformation or switch to non-parametric tests\n"
+                "• When in doubt → Consult with a statistician about complex or borderline patterns\n"
+                "• Remember: Visual inspection works together with the statistical test numbers above"
+            )
+            
+            ws.write(row, 0, practical_section, wrap_fmt)
+            practical_height = ResultsExporter.calc_robust_text_height(practical_section, 200*6)  # Updated for extra wide column
+            ws.set_row(row, practical_height)
+            row += 1
+            
+            # Section 5: Technical note
+            technical_section = (
+                "💡 TECHNICAL NOTE FOR ADVANCED USERS:\n"
+                "We examine model residuals (prediction errors) rather than raw group data because statistical tests "
+                "like ANOVA actually assess whether the model's prediction errors are normally distributed. This approach "
+                "provides a more accurate evaluation of whether your chosen statistical test is appropriate for your data."
+            )
+            
+            ws.write(row, 0, technical_section, wrap_fmt)
+            technical_height = ResultsExporter.calc_robust_text_height(technical_section, 200*6)  # Updated for extra wide column
+            ws.set_row(row, technical_height)
+            row += 2  # Extra space after complete guide
             
         except Exception as e:
             print(f"DEBUG: Error generating assumption plots: {e}")
@@ -8379,86 +8855,97 @@ class ResultsExporter:
                     ws.write(row, col, val, fmt["cell"])
                 row += 2
             
-            # VISUAL EXAMINATION AFTER TRANSFORMATION
+            # VISUAL EXAMINATION AFTER TRANSFORMATION - SIDE BY SIDE LAYOUT
             try:
                 plot_paths = AssumptionVisualizer.generate_assumption_plots(results)
                 
-                # Insert after-transformation plots if they exist
-                if plot_paths['normality_after']:
-                    ws.merge_range(f'A{row}:F{row}', f"🔄 VISUAL EXAMINATION AFTER {transformation.upper()} TRANSFORMATION", fmt["section_header"])
-                    row += 2  # Extra space after section header
-                    
-                    ws.merge_range(f'A{row}:F{row}', f"📈 Normality After {transformation} Transformation - Q-Q Plots", fmt["key"])
+                # Create side-by-side layout for after transformation plots
+                if plot_paths['normality_after'] and plot_paths['homoscedasticity_after']:
+                    ws.merge_range(f'A{row}:M{row}', f"🔄 AFTER {transformation.upper()} TRANSFORMATION - Q-Q Plot & Boxplots Comparison", fmt["section_header"])
                     row += 1
-                    ws.merge_range(f'A{row}:F{row}', "Compare these plots with the 'before transformation' plots above to see if transformation helped.", fmt["explanation"])
-                    row += 2  # Extra space before image
+                    
+                    # Brief comparison instruction
+                    comparison_intro = (
+                        "Compare these transformed plots with the original plots above. "
+                        "✅ Success: Points closer to red line (left) + similar box heights (right) | "
+                        "⚠️ Limited effect: Still curved lines or different box sizes"
+                    )
+                    ws.merge_range(f'A{row}:M{row}', comparison_intro, fmt["explanation"])
+                    ws.set_row(row, ResultsExporter.get_text_height(comparison_intro, 30*13))
+                    row += 1
                     
                     try:
                         from PIL import Image
+                        
+                        # Insert transformed Q-Q plot on the left (columns A:F)
                         with Image.open(plot_paths['normality_after']) as img:
                             width, height = img.size
-                            # More generous scaling - ensure plots are readable
-                            scale_factor = min(1.0, 1000 / width) if width > 1000 else 0.9
+                            scale_factor = max(0.8, min(1.2, 600 / width)) if width > 500 else 0.8
                             ws.insert_image(row, 0, plot_paths['normality_after'], 
                                           {'x_scale': scale_factor, 'y_scale': scale_factor})
-                            # Calculate rows needed for image with padding
-                            image_rows = int((height * scale_factor) / 15) + 4  # Extra padding
-                            row += max(image_rows, 15)  # Minimum 15 rows for spacing
-                            
-                    except Exception as e:
-                        print(f"DEBUG: Error inserting transformed normality plot: {e}")
-                        ws.write(row, 0, f"Error displaying transformed normality plot", fmt["explanation"])
-                        row += 3
-                
-                if plot_paths['homoscedasticity_after']:
-                    ws.merge_range(f'A{row}:F{row}', f"📊 Variance Equality After {transformation} Transformation - Boxplots", fmt["key"])
-                    row += 1
-                    ws.merge_range(f'A{row}:F{row}', "Compare box heights with 'before transformation' plots to see if variances are more equal now.", fmt["explanation"])
-                    row += 2  # Extra space before image
-                    
-                    try:
-                        from PIL import Image
+                        
+                        # Insert transformed Boxplot on the right (columns H:M)
                         with Image.open(plot_paths['homoscedasticity_after']) as img:
                             width, height = img.size
-                            # More generous scaling - ensure plots are readable
-                            scale_factor = min(1.0, 1000 / width) if width > 1000 else 0.9
-                            ws.insert_image(row, 0, plot_paths['homoscedasticity_after'], 
+                            scale_factor = max(0.8, min(1.2, 600 / width)) if width > 500 else 0.8
+                            ws.insert_image(row, 7, plot_paths['homoscedasticity_after'], 
                                           {'x_scale': scale_factor, 'y_scale': scale_factor})
-                            # Calculate rows needed for image with padding
-                            image_rows = int((height * scale_factor) / 15) + 4  # Extra padding
-                            row += max(image_rows, 15)  # Minimum 15 rows for spacing
+                        
+                        # Calculate rows needed for the taller of the two images
+                        with Image.open(plot_paths['normality_after']) as img1, Image.open(plot_paths['homoscedasticity_after']) as img2:
+                            max_height = max(img1.size[1], img2.size[1])
+                            scale_factor = 0.8
+                            image_rows = int((max_height * scale_factor) / 15) + 2
+                            row += max(image_rows, 10)  # Compact layout
                             
                     except Exception as e:
-                        print(f"DEBUG: Error inserting transformed homoscedasticity plot: {e}")
-                        ws.write(row, 0, f"Error displaying transformed homoscedasticity plot", fmt["explanation"])
+                        print(f"DEBUG: Error inserting side-by-side transformed plots: {e}")
+                        ws.write(row, 0, "Error displaying transformed assumption plots", fmt["explanation"])
                         row += 3
-                
-                # Add comparison guidance for transformation
-                if plot_paths['normality_after'] or plot_paths['homoscedasticity_after']:
-                    ws.merge_range(f'A{row}:F{row}', f"💡 COMPARING BEFORE vs AFTER {transformation.upper()} TRANSFORMATION:", fmt["key"])
+                        
+                elif plot_paths['normality_after'] or plot_paths['homoscedasticity_after']:
+                    # Fallback for single plots
+                    ws.merge_range(f'A{row}:F{row}', f"� AFTER {transformation.upper()} TRANSFORMATION", fmt["section_header"])
                     row += 1
                     
-                    comparison_guide = (
-                        f"Now that you can see both sets of plots, compare them to evaluate the {transformation} transformation:\n\n"
-                        "✅ TRANSFORMATION SUCCESSFUL if:\n"
-                        "• Q-Q plots: Dots follow the red line more closely after transformation\n"
-                        "• Boxplots: Box heights are more similar across groups after transformation\n\n"
-                        "⚠️ TRANSFORMATION LESS EFFECTIVE if:\n"
-                        "• Q-Q plots: Still curved or scattered after transformation\n"
-                        "• Boxplots: Box heights still very different after transformation\n\n"
-                        f"The statistical tests above will use the {'TRANSFORMED' if results.get('test_type') == 'parametric' else 'ORIGINAL'} data "
-                        f"based on which version better meets the assumptions."
-                    )
-                    ws.merge_range(f'A{row}:F{row}', comparison_guide, fmt["explanation"])
-                    ws.set_row(row, ResultsExporter.get_text_height(comparison_guide, 30*6))
-                    row += 3  # Extra space after comparison guide
+                    if plot_paths['normality_after']:
+                        ws.merge_range(f'A{row}:F{row}', f"📈 Q-Q Plot After {transformation} Transformation", fmt["key"])
+                        row += 1
+                        try:
+                            from PIL import Image
+                            with Image.open(plot_paths['normality_after']) as img:
+                                width, height = img.size
+                                scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
+                                ws.insert_image(row, 0, plot_paths['normality_after'], 
+                                              {'x_scale': scale_factor, 'y_scale': scale_factor})
+                                image_rows = int((height * scale_factor) / 15) + 2
+                                row += max(image_rows, 8)
+                        except Exception as e:
+                            print(f"DEBUG: Error inserting transformed normality plot: {e}")
+                            ws.write(row, 0, "Error displaying transformed normality plot", fmt["explanation"])
+                            row += 3
+                    
+                    if plot_paths['homoscedasticity_after']:
+                        ws.merge_range(f'A{row}:F{row}', f"� Boxplots After {transformation} Transformation", fmt["key"])
+                        row += 1
+                        try:
+                            from PIL import Image
+                            with Image.open(plot_paths['homoscedasticity_after']) as img:
+                                width, height = img.size
+                                scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
+                                ws.insert_image(row, 0, plot_paths['homoscedasticity_after'], 
+                                              {'x_scale': scale_factor, 'y_scale': scale_factor})
+                                image_rows = int((height * scale_factor) / 15) + 2
+                                row += max(image_rows, 8)
+                        except Exception as e:
+                            print(f"DEBUG: Error inserting transformed homoscedasticity plot: {e}")
+                            ws.write(row, 0, "Error displaying transformed homoscedasticity plot", fmt["explanation"])
+                            row += 3
                 
             except Exception as e:
                 print(f"DEBUG: Error generating after-transformation plots: {e}")
                 ws.write(row, 0, "Error generating after-transformation visual plots", fmt["explanation"])
                 row += 2
-
-            row += 2  # Extra space before summary
         
             # Summary text
             row += 1
@@ -8527,8 +9014,14 @@ class ResultsExporter:
             ws.merge_range(f'A{row}:F{row+4}', decision_tree, fmt["explanation"])
             ws.set_row(row, ResultsExporter.get_text_height(decision_tree, 30*6))
     
-        # Set column widths
+        # Set column widths for improved side-by-side layout
+        # Columns A-F: Statistical test results and left-side plot explanations
         for col in range(6):
+            ws.set_column(col, col, 28)
+        # Column G: Spacer between plots
+        ws.set_column(6, 6, 5)
+        # Columns H-M: Right-side plot explanations and plots
+        for col in range(7, 13):
             ws.set_column(col, col, 28)
             
     @staticmethod
@@ -9460,6 +9953,38 @@ class ResultsExporter:
         ResultsExporter.get_text_height._cache[cache_key] = result
     
         return result
+    
+    @staticmethod
+    def calc_robust_text_height(text: str, total_char_width: int, line_height_pts: float = 15.0) -> float:
+        """
+        Calculate precise row height for text content using text wrapping analysis.
+        This provides more accurate height calculation than the basic get_text_height method.
+        
+        Args:
+            text: The text content to calculate height for
+            total_char_width: Total character width available (column_width * num_columns)  
+            line_height_pts: Points per line (default 15.0)
+        
+        Returns:
+            Row height in points
+        """
+        import textwrap
+        if not text:
+            return 18.0
+        
+        # For very long texts, use a simple character-based estimate
+        # This is more reliable for Excel formatting
+        char_count = len(text)
+        estimated_lines = max(3, char_count // 80)  # Assume 80 characters per line
+        
+        # Add extra lines for line breaks
+        line_breaks = text.count('\n')
+        estimated_lines += line_breaks
+        
+        # Be very generous with height calculation
+        height = max(60.0, estimated_lines * line_height_pts * 1.5)  # 50% extra space
+        
+        return height
     
     @staticmethod
     def track_temp_file(filepath):

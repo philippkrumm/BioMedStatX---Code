@@ -262,6 +262,7 @@ class DecisionTreeVisualizer:
                 'L2_PH': {"label": "Post-hoc Tests", "pos": (7.75, -3)},
                 'M2_PH_DU': {"label": "Dunn Test", "pos": (6.25, -4)},
                 'M2_PH_MWU': {"label": "Pairwise Mann-Whitney-U\n(Sidak-corrected)", "pos": (9.25, -4)},
+                'NP_PH_WILC': {"label": "Pairwise Wilcoxon\n(Bonferroni-corrected)", "pos": (8, -4)},
             }
 
             # Add nodes to graph
@@ -358,6 +359,7 @@ class DecisionTreeVisualizer:
                 # From central post-hoc node to specific tests
                 ('L2_PH', 'M2_PH_DU'),        # Post-hoc -> Dunn Test
                 ('L2_PH', 'M2_PH_MWU'),  # Post-hoc -> Pairwise Mann-Whitney-U
+                ('L2_PH', 'NP_PH_WILC'),  # Post-hoc -> Pairwise Wilcoxon
             }
 
             # Add edges to graph
@@ -401,7 +403,9 @@ class DecisionTreeVisualizer:
                 test_name.lower().startswith("non-parametric") or
                 test_name.lower().startswith("nonparametric") or
                 "rank + permutation" in test_name.lower() or
-                auto_switched
+                auto_switched or
+                results.get("recommendation") == "non_parametric" or  # NEW: Check recommendation
+                results.get("parametric_assumptions_violated", False)  # NEW: Check if assumptions failed
             )
             
             print(f"DEBUG TREE: is_nonparametric_test={is_nonparametric_test}")
@@ -445,33 +449,41 @@ class DecisionTreeVisualizer:
                     if dependence_type == "dependent" or "rm" in test_name.lower() or "repeated" in test_name.lower() or "mixed" in test_name.lower():
                         highlighted.add(('I2_M', 'J2_M_DEP'))
                         
-                        # Specific test type
+                        # Better explicit detection for dependent samples
                         if "mixed" in test_name.lower():
+                            print(f"DEBUG TREE: Non-parametric Mixed ANOVA path: {test_name}")
                             highlighted.add(('J2_M_DEP', 'NP_M_MIX'))
                             highlighted.add(('NP_M_MIX', 'L2_PH'))
                             highlighted.add(('L2_PH', 'NP_PH_WILC'))  # Wilcoxon for mixed
                         elif "rm" in test_name.lower() or "repeated" in test_name.lower():
+                            print(f"DEBUG TREE: Non-parametric RM ANOVA path: {test_name}")
                             highlighted.add(('J2_M_DEP', 'NP_M_DEP'))
                             highlighted.add(('NP_M_DEP', 'L2_PH'))
                             highlighted.add(('L2_PH', 'NP_PH_WILC'))  # Wilcoxon for RM
                         else:
+                            print(f"DEBUG TREE: Non-parametric dependent path (default): {test_name}")
+                            highlighted.add(('J2_M_DEP', 'NP_M_DEP'))  # Default to RM ANOVA
+                            highlighted.add(('NP_M_DEP', 'L2_PH'))
                             highlighted.add(('L2_PH', 'NP_PH_WILC'))  # Wilcoxon post-hoc
                     else:
                         highlighted.add(('I2_M', 'J2_M_INDEP'))
                         
-                        # Independent samples
+                        # Better detection for independent samples non-parametric tests
                         if "two-way" in test_name.lower() or "two way" in test_name.lower() or "two_way" in test_name.lower():
+                            print(f"DEBUG TREE: Non-parametric Two-Way ANOVA path: {test_name}")
                             highlighted.add(('J2_M_INDEP', 'NP_M_IND'))  # Non-parametric Two-Way ANOVA
                             
-                            # Only add post-hoc if non-parametric alternatives aren't disabled
-                            if not nonparametric_disabled:
+                            # Only show post-hoc path if non-parametric test is available
+                            if not nonparametric_disabled and "required but not available" not in test_name:
                                 highlighted.add(('NP_M_IND', 'L2_PH'))
                                 highlighted.add(('L2_PH', 'NP_PH_MWU'))  # Mann-Whitney U for Two-Way
                             else:
-                                # Add a note about disabled non-parametric alternatives
-                                print(f"DEBUG TREE: Not showing post-hoc for disabled non-parametric alternative")
+                                # Don't highlight post-hoc path if non-parametric alternative is not available
+                                print(f"DEBUG TREE: Non-parametric Two-Way post-hoc not highlighted - alternative not available")
+                                
                         else:
-                            # Kruskal-Wallis for general independent samples
+                            print(f"DEBUG TREE: Non-parametric One-Way ANOVA path (Kruskal-Wallis): {test_name}")
+                            # Kruskal-Wallis for general independent samples (One-Way equivalent)
                             highlighted.add(('J2_M_INDEP', 'K2_M_IND'))
                             alpha = results.get("alpha", 0.05)
                             if p_value is not None and p_value < alpha:
@@ -505,8 +517,11 @@ class DecisionTreeVisualizer:
                         highlighted.add(('K1_2_DEP', 'O1_PH'))
                 else:
                     highlighted.add(('H1', 'I1_M'))
-
-                    if dependence_type == "dependent" or "rm" in test_name.lower() or "repeated" in test_name.lower():
+                    
+                    # Better logic for advanced ANOVA detection with explicit prioritization
+                    if "repeated" in test_name.lower() or ("rm" in test_name.lower() and "anova" in test_name.lower()):
+                        # Repeated Measures ANOVA path
+                        print(f"DEBUG TREE: Detected RM ANOVA: {test_name}")
                         highlighted.add(('I1_M', 'J1_M_SPH'))
                         highlighted.add(('J1_M_SPH', 'K1_M_SPH'))
                         highlighted.add(('K1_M_SPH', 'L1_M_DEP'))
@@ -515,8 +530,10 @@ class DecisionTreeVisualizer:
                         alpha = results.get("alpha", 0.05)
                         if p_value is not None and p_value < alpha:
                             highlighted.add(('M1_M_DEP', 'O1_PH'))
-
+                            
                     elif "mixed" in test_name.lower():
+                        # Mixed ANOVA path
+                        print(f"DEBUG TREE: Detected Mixed ANOVA: {test_name}")
                         highlighted.add(('I1_M', 'J1_M_SPH'))
                         highlighted.add(('J1_M_SPH', 'K1_M_SPH'))
                         highlighted.add(('K1_M_SPH', 'L1_M_MIX'))
@@ -525,21 +542,28 @@ class DecisionTreeVisualizer:
                         alpha = results.get("alpha", 0.05)
                         if p_value is not None and p_value < alpha:
                             highlighted.add(('M1_M_MIX', 'O1_PH'))
-
-                    else:
+                            
+                    elif "two-way" in test_name.lower() or "two way" in test_name.lower():
+                        # Two-Way ANOVA path (explicit detection)
+                        print(f"DEBUG TREE: Detected Two-Way ANOVA: {test_name}")
                         highlighted.add(('I1_M', 'J1_M_SPH'))
                         highlighted.add(('J1_M_SPH', 'K1_M_SPH'))
                         highlighted.add(('K1_M_SPH', 'L1_M_IND'))
-                        if "two-way" in test_name.lower() or "two way" in test_name.lower():
-                            highlighted.add(('L1_M_IND', 'M1_M_IND_TWO'))
-                            alpha = results.get("alpha", 0.05)
-                            if p_value is not None and p_value < alpha:
-                                highlighted.add(('M1_M_IND_TWO', 'O1_PH'))
-                        else:
-                            highlighted.add(('L1_M_IND', 'M1_M_IND_ONE'))
-                            alpha = results.get("alpha", 0.05)
-                            if p_value is not None and p_value < alpha:
-                                highlighted.add(('M1_M_IND_ONE', 'O1_PH'))
+                        highlighted.add(('L1_M_IND', 'M1_M_IND_TWO'))
+                        alpha = results.get("alpha", 0.05)
+                        if p_value is not None and p_value < alpha:
+                            highlighted.add(('M1_M_IND_TWO', 'O1_PH'))
+                            
+                    else:
+                        # One-Way ANOVA path (default for unspecified multiple group parametric tests)
+                        print(f"DEBUG TREE: Detected One-Way ANOVA (default): {test_name}")
+                        highlighted.add(('I1_M', 'J1_M_SPH'))
+                        highlighted.add(('J1_M_SPH', 'K1_M_SPH'))
+                        highlighted.add(('K1_M_SPH', 'L1_M_IND'))
+                        highlighted.add(('L1_M_IND', 'M1_M_IND_ONE'))
+                        alpha = results.get("alpha", 0.05)
+                        if p_value is not None and p_value < alpha:
+                            highlighted.add(('M1_M_IND_ONE', 'O1_PH'))
 
                     # Post-hoc test types only if ANOVA was significant:
                     alpha = results.get("alpha", 0.05)
@@ -770,19 +794,23 @@ class DecisionTreeVisualizer:
             elif "dunnett" in posthoc_test.lower() and "t3" not in posthoc_test.lower():
                 print(f"DEBUG TREE: Highlighting Dunnett path")
                 highlighted.add(('O1_PH', 'P1_PH_DN'))
-            elif "holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower() or "custom paired" in posthoc_test.lower():
+            elif ("holm" in posthoc_test.lower() or "sidak" in posthoc_test.lower() or 
+                  "pairwise t-test" in posthoc_test.lower() or "pairwise" in posthoc_test.lower()):
                 print(f"DEBUG TREE: Highlighting Holm-Sidak path for posthoc: '{posthoc_test}'")
                 highlighted.add(('O1_PH', 'P1_PH_SD'))
-            # NEU: Nichtparametrische Post-hoc-Tests
+            # Handle non-parametric post-hoc tests
             elif "mann-whitney" in posthoc_test.lower():
                 print(f"DEBUG TREE: Highlighting Pairwise Mann-Whitney-U path")
                 highlighted.add(('L2_PH', 'M2_PH_MWU'))
             elif "dunn" in posthoc_test.lower():
-                print(f"DEBUG TREE: Highlighting Dunn path")
+                print(f"DEBUG TREE: Highlighting Dunn test path")
                 highlighted.add(('L2_PH', 'M2_PH_DU'))
+            elif "wilcoxon" in posthoc_test.lower():
+                print(f"DEBUG TREE: Highlighting Wilcoxon post-hoc path")
+                highlighted.add(('L2_PH', 'NP_PH_WILC'))
             else:
-                print(f"DEBUG TREE: Unknown post-hoc test, using default Tukey")
-                highlighted.add(('O1_PH', 'P1_PH_TK'))
+                print(f"DEBUG TREE: Unknown post-hoc test '{posthoc_test}', defaulting to Holm-Sidak")
+                highlighted.add(('O1_PH', 'P1_PH_SD'))
         else:
             # Check for pairwise comparisons to infer post-hoc test type
             pairwise_comps = results.get("pairwise_comparisons", [])
@@ -790,18 +818,34 @@ class DecisionTreeVisualizer:
                 # Try to infer from the test names in pairwise comparisons
                 first_comp = pairwise_comps[0]
                 test_name_in_comp = first_comp.get("test", "").lower()
-                corrected_method = first_comp.get("correction_method", "").lower()  # FIX: Use correct field name
-                print(f"DEBUG TREE: No explicit posthoc_test, inferring from pairwise test: '{test_name_in_comp}' with correction: '{corrected_method}'")
                 
-                if "holm" in test_name_in_comp or "sidak" in test_name_in_comp or "holm" in corrected_method or "sidak" in corrected_method:
+                # Check both "corrected" and "correction_method" fields for the correction method
+                corrected_info = first_comp.get("corrected", "")
+                correction_method = first_comp.get("correction_method", "")
+                correction_field = first_comp.get("correction", "")  # Also check "correction" field
+                corrected_method = str(corrected_info).lower() if corrected_info else ""
+                correction_method_str = str(correction_method).lower() if correction_method else ""
+                correction_field_str = str(correction_field).lower() if correction_field else ""
+                
+                print(f"DEBUG TREE: No explicit posthoc_test, inferring from pairwise test: '{test_name_in_comp}' with correction: '{corrected_method}' / '{correction_method_str}' / '{correction_field_str}'")
+                
+                if ("holm" in test_name_in_comp or "sidak" in test_name_in_comp or 
+                    "holm" in corrected_method or "sidak" in corrected_method or 
+                    "holm" in correction_method_str or "sidak" in correction_method_str or
+                    "holm" in correction_field_str or "sidak" in correction_field_str):
                     print(f"DEBUG TREE: Inferred Holm-Sidak from pairwise test")
                     highlighted.add(('O1_PH', 'P1_PH_SD'))
-                elif "tukey" in test_name_in_comp:
+                elif ("tukey" in test_name_in_comp or 
+                      "tukey" in correction_field_str):
                     print(f"DEBUG TREE: Inferred Tukey from pairwise test")
                     highlighted.add(('O1_PH', 'P1_PH_TK'))
                 elif "dunnett" in test_name_in_comp:
                     print(f"DEBUG TREE: Inferred Dunnett from pairwise test")
                     highlighted.add(('O1_PH', 'P1_PH_DN'))
+                elif ("pairwise" in test_name_in_comp and ("holm" in corrected_method or "sidak" in corrected_method or 
+                                                        "holm" in correction_method_str or "sidak" in correction_method_str)):
+                    print(f"DEBUG TREE: Inferred Holm-Sidak from pairwise test with correction method")
+                    highlighted.add(('O1_PH', 'P1_PH_SD'))
                 else:
                     print(f"DEBUG TREE: Unknown pairwise test type, showing options for choice")
                     if is_one_way_anova:
