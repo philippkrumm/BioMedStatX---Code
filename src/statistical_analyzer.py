@@ -1642,6 +1642,17 @@ class StatisticalAnalyzerApp(QMainWindow):
         self.setWindowTitle("BioMedStatX")
         self.setGeometry(100, 50, 1600, 1300)
         
+        # Set window icon
+        try:
+            icon_path = resource_path("assets/Institutslogo.ico")
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+                print(f"SUCCESS: Window icon set from {icon_path}")
+            else:
+                print(f"WARNING: Icon file not found at {icon_path}")
+        except Exception as e:
+            print(f"ERROR: Could not set window icon: {e}")
+        
         # Data attributes
         self.file_path = None
         self.df = None

@@ -1189,7 +1189,7 @@ class TukeyHSD(PostHocAnalyzer):
                     p_val = summary.data[i+1][3]  # Fourth column is the p-value
                     lower, upper = summary.data[i+1][4:6]  # Fifth and sixth columns are the confidence intervals
                     reject = summary.data[i+1][6]  # Seventh column is the reject info
-                    is_significant = reject  # Diese Variable wird nicht mehr als Parameter übergeben!
+                    is_significant = reject  # This variable is no longer passed as parameter!
 
                     # Calculate Cohen's d effect size
                     group1_data = samples[group1]
@@ -1210,7 +1210,7 @@ class TukeyHSD(PostHocAnalyzer):
                         effect_size_type="cohen_d",
                         confidence_interval=(float(lower), float(upper)),
                         alpha=alpha
-                        # Der Parameter significant=is_significant wurde entfernt
+                        # The parameter significant=is_significant was removed
                     )
             else:
                 result["error"] = "TukeyHSDResults object has no summary() attribute"
@@ -1876,7 +1876,7 @@ class StatisticalTester:
             test_recommendation = "parametric"  # Welch-ANOVA
             test_info["note"] = "Residuen normal, Varianzen ungleich – Welch-ANOVA wird verwendet"
         elif post_norm and not post_var and model_type in ["twoway", "mixed", "rm"]:
-            test_recommendation = "parametric"  # Erweiterte ANOVAs können oft mit ungleichen Varianzen umgehen
+            test_recommendation = "parametric"  # Advanced ANOVAs can often handle unequal variances
             test_info["note"] = f"Residuen normal, Varianzen ungleich – {model_type.upper()}-ANOVA wird trotzdem verwendet (robust gegen Varianzheterogenität)"
         elif post_norm and not post_var and len(valid_groups) == 2:
             test_recommendation = "parametric"  # Welch-Test
@@ -1983,7 +1983,7 @@ class StatisticalTester:
                     return StatisticalTester._wilcoxon_test(results, g1, g2, data1, data2, alpha)
             else:
                 if test_recommendation == "parametric":
-                    # Prüfe Varianzhomogenität für Welch-Test
+                    # Check variance homogeneity for Welch test
                     equal_var = True
                     if test_info is not None:
                         if test_info.get("transformation"):
@@ -2710,7 +2710,7 @@ class StatisticalTester:
                         subset = df[(df[b_factor] == b_val) & (df[w_factor] == w_val)]
                         samples[group_label] = subset[dv].tolist()
                 groups = list(samples.keys())
-                # Formel für Mixed ANOVA (für Annahmenprüfung)
+                # Formula for Mixed ANOVA (for assumption checking)
                 formula = f"Value ~ C({b_factor}) * C({w_factor})"
 
             elif test == 'repeated_measures_anova':
@@ -2720,7 +2720,7 @@ class StatisticalTester:
                 for lvl in df[w_factor].unique():
                     samples[lvl] = df[df[w_factor] == lvl][dv].tolist()
                 groups = list(samples.keys())
-                # Formel für RM-ANOVA (für Annahmenprüfung)
+                # Formula for RM-ANOVA (for assumption checking)
                 formula = f"Value ~ C({w_factor})"
 
             elif test == 'two_way_anova':
@@ -2733,13 +2733,13 @@ class StatisticalTester:
                         subset = df[(df[fA] == a_val) & (df[fB] == b_val)]
                         samples[group_label] = subset[dv].tolist()
                 groups = list(samples.keys())
-                # Formel für Two-Way ANOVA (für Annahmenprüfung)
+                # Formula for Two-Way ANOVA (for assumption checking)
                 formula = f"Value ~ C({fA}) * C({fB})"
 
             else:
                 return {"error": f"Unknown test type: {test}"}
 
-            # Annahmenprüfung mit passender Formel
+            # Assumption checking with appropriate formula
             model_type_map = {
                 "One-Way ANOVA": "oneway", 
                 "Two-Way ANOVA": "twoway",
@@ -4782,7 +4782,7 @@ class StatisticalTester:
                     print(f"DEBUG: Error showing parametric post-hoc dialog: {e}")
                     posthoc_choice = "tukey"  # Fallback to Tukey HSD
             else:
-                # NEU: Dialog für nichtparametrische Post-hoc-Tests
+                # NEW: Dialog for non-parametric post-hoc tests
                 print("DEBUG: About to show non-parametric post-hoc dialog")
                 try:
                     posthoc_choice = UIDialogManager.select_nonparametric_posthoc_dialog(
@@ -4821,7 +4821,7 @@ class StatisticalTester:
                     return test_instance.perform_test(valid_groups, samples, alpha=alpha, parametric=is_parametric)
                 
             elif posthoc_choice == "paired_custom":
-                # Dialog für Paarauswahl öffnen
+                # Open dialog for pair selection
                 pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
                 if not pairs:
                     result["error"] = "No pairs selected."
@@ -4829,7 +4829,7 @@ class StatisticalTester:
                 # Import required modules
                 from scipy import stats
                 import numpy as np
-                # Paired t-tests für die gewählten Paare
+                # Paired t-tests for the selected pairs
                 pvals, stats_list = [], []
                 for g1, g2 in pairs:
                     x, y = np.array(samples[g1]), np.array(samples[g2])
@@ -4861,7 +4861,7 @@ class StatisticalTester:
                 return result
                 
             elif posthoc_choice == "mw_custom":
-                # NEU: Paarweise Mann-Whitney-U (Šidák, benutzerdefinierte Paare)
+                # NEW: Pairwise Mann-Whitney-U (Šidák, custom pairs)
                 pairs = UIDialogManager.select_custom_pairs_dialog(valid_groups)
                 if not pairs:
                     result["error"] = "No pairs selected."
@@ -5222,13 +5222,13 @@ class DataVisualizer:
         """
         import matplotlib.pyplot as plt
         import numpy as np
-        # Einstellungen für publication-ready Bars
+        # Settings for publication-ready bars
         LINEWIDTH = 2
         FONT_SIZE = 16
-        SHORT_VERT = 0.25  # Vertikale Enden sind jetzt deutlich kürzer (als Anteil von step)
+        SHORT_VERT = 0.25  # Vertical ends are now significantly shorter (as fraction of step)
 
         group_pos = {g: i for i, g in enumerate(compare)}
-        # Finde das aktuelle Maximum auf der y-Achse
+        # Find the current maximum on the y-axis
         if df is not None and 'Value' in df:
             y_max = df['Value'].max()
         else:
@@ -5251,15 +5251,15 @@ class DataVisualizer:
                 continue
             x1 = group_pos[g1]
             x2 = group_pos[g2]
-            # Vertikale Enden sind jetzt deutlich kürzer
+            # Vertical ends are now significantly shorter
             vert = step * SHORT_VERT
-            # Linke vertikale Linie
+            # Left vertical line
             ax.plot([x1, x1], [current_height, current_height+vert], color='#222', linewidth=LINEWIDTH)
-            # Rechte vertikale Linie
+            # Right vertical line
             ax.plot([x2, x2], [current_height, current_height+vert], color='#222', linewidth=LINEWIDTH)
-            # Horizontale Linie oben
+            # Horizontal line at top
             ax.plot([x1, x2], [current_height+vert, current_height+vert], color='#222', linewidth=LINEWIDTH)
-            # p-Wert oder Sternchen
+            # p-value or asterisks
             if p is not None:
                 if p < 0.001:
                     text = '***'
@@ -5289,7 +5289,7 @@ class DataVisualizer:
             # Raincloud ist horizontal: Höhe muss mit Gruppen skalieren
             adjusted_width = max(width, 8 + num_groups * 0.5)
             adjusted_height = max(height, 4 + num_groups * 1.2)
-            # Extra Skalierung für viele Gruppen
+            # Extra scaling for many groups
             if num_groups > 6:
                 adjusted_height += (num_groups - 6) * 0.8
         else:
@@ -7652,6 +7652,7 @@ class ResultsExporter:
             "significant": workbook.add_format({'align': 'center', 'color': 'red', 'bold': True, 'text_wrap': True}),
             "explanation": workbook.add_format({'text_wrap': True, 'valign': 'top', 'font_color': '#1F4E78'}),
             "section_header": workbook.add_format({'bold': True, 'bg_color': '#B4C6E7', 'border': 1}),
+            "section_header_center": workbook.add_format({'bold': True, 'bg_color': '#B4C6E7', 'border': 1, 'align': 'center'}),
             "effect_strong": workbook.add_format({'align': 'center', 'color': '#006400', 'bold': True, 'text_wrap': True}),
             "effect_medium": workbook.add_format({'align': 'center', 'color': '#FFA500', 'bold': True, 'text_wrap': True}),
             "effect_weak": workbook.add_format({'align': 'center', 'color': '#A52A2A', 'bold': True, 'text_wrap': True}),
@@ -7683,7 +7684,9 @@ class ResultsExporter:
     @staticmethod
     def _write_summary_sheet(workbook, results, fmt, sheet_name="Summary"):
         ws = workbook.add_worksheet(sheet_name)
-        ws.set_column(0, 5, 28)
+        # Set correct column widths: A=55, B-F=20
+        ws.set_column(0, 0, 55)  # Column A
+        ws.set_column(1, 5, 20)  # Columns B-F
         ws.set_row(0, 30)
 
         test_info = results.get("test", "Not specified")
@@ -7738,7 +7741,7 @@ class ResultsExporter:
                 f"between the groups under investigation (p{p_val_text})."
             )
         ws.merge_range('A4:F4', conclusion, fmt["cell"])
-        ws.set_row(3, ResultsExporter.get_text_height(conclusion, 28))
+        ws.set_row(3, ResultsExporter.get_fixed_row_height("summary_conclusion"))
 
         # Key information
         row = 6
@@ -7901,7 +7904,7 @@ class ResultsExporter:
             'bg_color': '#F0F8FF'
         })
         ws.write(row, 0, nav_text, nav_wrap_fmt)
-        nav_height = ResultsExporter.calc_robust_text_height(nav_text, 28*6)
+        nav_height = ResultsExporter.get_fixed_row_height("summary_navigation")
         ws.set_row(row, nav_height)
 
         # Update row position after navigation text
@@ -7944,7 +7947,7 @@ class ResultsExporter:
                 'bg_color': '#F0F8FF'
             })
             ws.write(row, 0, explanation, explanation_wrap_fmt)
-            explanation_height = ResultsExporter.calc_robust_text_height(explanation, 28*6)
+            explanation_height = ResultsExporter.get_fixed_row_height("summary_posthoc_info")
             ws.set_row(row, explanation_height)
             row += 2
             
@@ -7962,7 +7965,7 @@ class ResultsExporter:
                 'bg_color': '#F0F8FF'
             })
             ws.write(row, 0, general_note, note_wrap_fmt)
-            note_height = ResultsExporter.calc_robust_text_height(general_note, 28*6)
+            note_height = ResultsExporter.get_fixed_row_height("general_note")
             ws.set_row(row, note_height)
             row += 1
 
@@ -8020,7 +8023,7 @@ class ResultsExporter:
                 'bg_color': '#F0F8FF'
             })
             ws.write(row, 0, intro_text, intro_wrap_fmt)
-            intro_anova_height = ResultsExporter.calc_robust_text_height(intro_text, 28*6)
+            intro_anova_height = ResultsExporter.get_fixed_row_height("intro_anova_text")
             ws.set_row(row, intro_anova_height)
             row += 2
             
@@ -8044,10 +8047,21 @@ class ResultsExporter:
                 ("np2 (Partial Eta Squared)", "Effect size measure (proportion of variance explained):\n• 0.01 = small effect\n• 0.06 = medium effect\n• 0.14 = large effect\n• Higher values indicate stronger effects\n• Interpretation is context-dependent and varies between research fields\n• Consider field-specific benchmarks when interpreting effect sizes")
             ]
             
+            explanation_heights = {
+                "Source": "anova_source_explanation",
+                "SS (Sum of Squares)": "anova_ss_explanation", 
+                "DF (Degrees of Freedom)": "anova_df_explanation",
+                "MS (Mean Square)": "anova_ms_explanation",
+                "F": "anova_f_explanation",
+                "p-unc": "anova_p_explanation", 
+                "np2 (Partial Eta Squared)": "anova_np2_explanation"
+            }
+            
             for term, explanation in explanations:
                 ws.write(row, 0, term, fmt["key"])
                 ws.write(row, 1, explanation, fmt["explanation"])
-                ws.set_row(row, ResultsExporter.get_text_height(explanation, 28*5))
+                height_key = explanation_heights.get(term, "medium_text")
+                ws.set_row(row, ResultsExporter.get_fixed_row_height(height_key))
                 row += 1
             
             row += 1
@@ -8081,16 +8095,16 @@ class ResultsExporter:
                 'bg_color': '#F0F8FF'
             })
             ws.write(row, 0, interpret_text, interpret_wrap_fmt)
-            interpret_height = ResultsExporter.calc_robust_text_height(interpret_text, 28*6)
+            interpret_height = ResultsExporter.get_fixed_row_height("results_interpretation")
             ws.set_row(row, interpret_height)
             row += 1
     
     @staticmethod
     def _write_assumptions_sheet(workbook, results, fmt, sheet_name="Assumptions"):
         ws = workbook.add_worksheet(sheet_name)
-        # Set column 0 extra wide for very long text content
-        ws.set_column(0, 0, 200)  # Make first column extra wide for long texts (was 120)
-        ws.set_column(1, 5, 20)  # Other columns smaller
+        # Set column widths
+        ws.set_column(0, 0, 55)   # Column A reduced from 80 to 55
+        ws.set_column(1, 5, 20)   # Other columns smaller
         ws.set_row(0, 30)
         ws.merge_range('A1:F1', 'TEST ASSUMPTIONS CHECK', fmt["title"])
 
@@ -8108,8 +8122,8 @@ class ResultsExporter:
             'bg_color': '#F0F8FF'
         })
         ws.write(1, 0, introduction, intro_wrap_fmt)
-        # Auto-calculate height for introduction using static method
-        intro_height = ResultsExporter.calc_robust_text_height(introduction, 200*6)  # Updated for extra wide column
+        # Use fixed optimal height for introduction
+        intro_height = ResultsExporter.get_fixed_row_height("assumptions_intro")
         ws.set_row(1, intro_height)
 
         row = 4
@@ -8146,8 +8160,8 @@ class ResultsExporter:
             'bg_color': '#F0F8FF'
         })
         ws.write(row, 0, assumptions_overview, assumptions_wrap_fmt)
-        # Set ONLY the row height without applying format to the entire row
-        overview_height = ResultsExporter.calc_robust_text_height(assumptions_overview, 200*6)  # Updated for extra wide column
+        # Use fixed optimal height for assumptions overview
+        overview_height = ResultsExporter.get_fixed_row_height("assumptions_overview")
         ws.set_row(row, overview_height)
         row += 2
 
@@ -8194,7 +8208,7 @@ class ResultsExporter:
                     'bg_color': '#F0F8FF'
                 })
                 ws.write(row, 0, explanation, sphericity_wrap_fmt)
-                sphericity_height = ResultsExporter.calc_robust_text_height(explanation, 200*6)  # Updated for extra wide column
+                sphericity_height = ResultsExporter.get_fixed_row_height("sphericity_detail")
                 ws.set_row(row, sphericity_height)
                 row += 2
             else:
@@ -8254,7 +8268,7 @@ class ResultsExporter:
                 'bg_color': '#F0F8FF'
             })
             ws.write(row, 0, norm_explanation, norm_wrap_fmt)
-            norm_height = ResultsExporter.calc_robust_text_height(norm_explanation, 200*5)  # Updated for extra wide column
+            norm_height = ResultsExporter.get_fixed_row_height("normality_detail")
             ws.set_row(row, norm_height)
             row += 2
             
@@ -8413,31 +8427,13 @@ class ResultsExporter:
             'bg_color': '#F0F8FF'
         })
         ws.write(row, 0, visual_intro, visual_wrap_fmt)
-        visual_height = ResultsExporter.calc_robust_text_height(visual_intro, 200*6)  # Updated for extra wide column
+        visual_height = ResultsExporter.get_fixed_row_height("visual_intro")
         ws.set_row(row, visual_height)
         row += 2  # Reduced space after introduction
         
         # Generate and insert visual plots - ROBUST SIDE-BY-SIDE LAYOUT
         try:
             plot_paths = AssumptionVisualizer.generate_assumption_plots(results)
-            
-            # Helper function for automatic row height calculation
-            def _auto_row_height_for_text(text: str, total_char_width: int, line_height_pts: float = 15.0) -> float:
-                """
-                Calculate required row height for wrapped text in Excel.
-                Uses simple character-based estimate for reliability.
-                """
-                if not text:
-                    return 18.0
-
-                # Simple character-based calculation
-                char_count = len(text)
-                estimated_lines = max(3, char_count // 60)  # Assume 60 characters per line
-                line_breaks = text.count('\n')
-                estimated_lines += line_breaks
-                
-                # Be very generous with height
-                return max(80.0, estimated_lines * line_height_pts * 2.0)  # Double height
             
             # Create side-by-side layout for both plots
             if plot_paths['normality_before'] and plot_paths['homoscedasticity_before']:
@@ -8450,11 +8446,11 @@ class ResultsExporter:
                 })
                 
                 # Konstanten für Spaltenbreiten
-                LEFT_TOTAL = 200 * 6   # A..F (updated for extra wide column A)
+                LEFT_TOTAL = 55 * 6   # A..F (updated for new column width A=55)
                 RIGHT_TOTAL = 28 * 6  # H..M
                 
                 # Single header for both plots (Merge ok für Überschrift)
-                ws.merge_range(f'A{row}:M{row}', "📈📊 VISUAL ASSUMPTION EXAMINATION - Q-Q Plot & Boxplots Side by Side", fmt["key"])
+                ws.merge_range(f'A{row}:M{row}', "📈📊 VISUAL ASSUMPTION EXAMINATION - Q-Q Plot & Boxplots Side by Side", fmt["section_header_center"])
                 ws.set_row(row, 22)
                 row += 1
                 
@@ -8488,11 +8484,11 @@ class ResultsExporter:
                 
                 # LINKER Block (nur Zelle A{row} nutzen), Breite = Summe A..F
                 ws.write(row, 0, qq_text, wrap_fmt)
-                req_h_left = _auto_row_height_for_text(qq_text, LEFT_TOTAL, line_height_pts=15.0)
+                req_h_left = ResultsExporter.get_fixed_row_height("side_by_side_qq")
                 
                 # RECHTER Block (nur Zelle H{row} nutzen), Breite = Summe H..M
                 ws.write(row, 7, box_text, wrap_fmt)
-                req_h_right = _auto_row_height_for_text(box_text, RIGHT_TOTAL, line_height_pts=15.0)
+                req_h_right = ResultsExporter.get_fixed_row_height("side_by_side_box")
                 
                 # beide Blöcke auf gleiche Höhe bringen
                 ws.set_row(row, max(req_h_left, req_h_right))
@@ -8576,9 +8572,9 @@ class ResultsExporter:
                     "not the raw group data. This gives a more accurate assessment of whether your test assumptions are met."
                 )
                 
-                # Write text in single cell with automatic height
+                # Write text in single cell with fixed optimal height
                 ws.write(row, 0, normality_explanation, wrap_fmt)
-                req_height = _auto_row_height_for_text(normality_explanation, 200*6, line_height_pts=15.0)  # Updated for extra wide column
+                req_height = ResultsExporter.get_fixed_row_height("qq_plot_explanation")
                 ws.set_row(row, req_height)
                 row += 1
                 
@@ -8637,9 +8633,9 @@ class ResultsExporter:
                     "💡 REMEMBER: We're comparing the spread/variability, not the central values (medians)"
                 )
                 
-                # Write text in single cell with automatic height
+                # Write text in single cell with fixed optimal height
                 ws.write(row, 0, variance_explanation, wrap_fmt)
-                req_height = _auto_row_height_for_text(variance_explanation, 200*6, line_height_pts=15.0)  # Updated for extra wide column
+                req_height = ResultsExporter.get_fixed_row_height("boxplot_explanation")
                 ws.set_row(row, req_height)
                 row += 1
                 
@@ -8684,7 +8680,7 @@ class ResultsExporter:
             })
             
             ws.write(row, 0, why_section, wrap_fmt)
-            why_height = ResultsExporter.calc_robust_text_height(why_section, 200*6)  # Updated for extra wide column
+            why_height = ResultsExporter.get_fixed_row_height("why_section")
             ws.set_row(row, why_height)
             row += 1
             
@@ -8705,7 +8701,7 @@ class ResultsExporter:
             )
             
             ws.write(row, 0, qq_section, wrap_fmt)
-            qq_height = ResultsExporter.calc_robust_text_height(qq_section, 200*6)  # Updated for extra wide column
+            qq_height = ResultsExporter.get_fixed_row_height("qq_section")
             ws.set_row(row, qq_height)
             row += 1
             
@@ -8726,7 +8722,7 @@ class ResultsExporter:
             )
             
             ws.write(row, 0, boxplot_section, wrap_fmt)
-            boxplot_height = ResultsExporter.calc_robust_text_height(boxplot_section, 200*6)  # Updated for extra wide column
+            boxplot_height = ResultsExporter.get_fixed_row_height("boxplot_section")
             ws.set_row(row, boxplot_height)
             row += 1
             
@@ -8740,7 +8736,7 @@ class ResultsExporter:
             )
             
             ws.write(row, 0, practical_section, wrap_fmt)
-            practical_height = ResultsExporter.calc_robust_text_height(practical_section, 200*6)  # Updated for extra wide column
+            practical_height = ResultsExporter.get_fixed_row_height("practical_section")
             ws.set_row(row, practical_height)
             row += 1
             
@@ -8753,7 +8749,7 @@ class ResultsExporter:
             )
             
             ws.write(row, 0, technical_section, wrap_fmt)
-            technical_height = ResultsExporter.calc_robust_text_height(technical_section, 200*6)  # Updated for extra wide column
+            technical_height = ResultsExporter.get_fixed_row_height("technical_section")
             ws.set_row(row, technical_height)
             row += 2  # Extra space after complete guide
             
@@ -8770,7 +8766,7 @@ class ResultsExporter:
             if trans_info:
                 row += 1
                 ws.merge_range(f'A{row}:F{row}', f"Details: {trans_info}", fmt["explanation"])
-                ws.set_row(row, ResultsExporter.get_text_height(str(trans_info), 30*6))
+                ws.set_row(row, ResultsExporter.get_fixed_row_height("transformation_info"))
             # Show lambda value if Box-Cox transformation
             if transformation == "boxcox" and "boxcox_lambda" in results:
                 row += 1
@@ -8871,7 +8867,7 @@ class ResultsExporter:
                         "⚠️ Limited effect: Still curved lines or different box sizes"
                     )
                     ws.merge_range(f'A{row}:M{row}', comparison_intro, fmt["explanation"])
-                    ws.set_row(row, ResultsExporter.get_text_height(comparison_intro, 30*13))
+                    ws.set_row(row, ResultsExporter.get_fixed_row_height("comparison_intro"))
                     row += 1
                     
                     try:
@@ -8997,7 +8993,7 @@ class ResultsExporter:
                     )
                     
             ws.merge_range(f'A{row}:F{row}', summary, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(summary, 30*6))
+            ws.set_row(row, ResultsExporter.get_fixed_row_height("results_summary"))
             row += 2
         
             # Decision tree
@@ -9012,17 +9008,7 @@ class ResultsExporter:
                     "→ If no: Try transformation or non-parametric test (e.g., Mann-Whitney U, Kruskal-Wallis)"
                 )
             ws.merge_range(f'A{row}:F{row+4}', decision_tree, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(decision_tree, 30*6))
-    
-        # Set column widths for improved side-by-side layout
-        # Columns A-F: Statistical test results and left-side plot explanations
-        for col in range(6):
-            ws.set_column(col, col, 28)
-        # Column G: Spacer between plots
-        ws.set_column(6, 6, 5)
-        # Columns H-M: Right-side plot explanations and plots
-        for col in range(7, 13):
-            ws.set_column(col, col, 28)
+            ws.set_row(row, ResultsExporter.get_fixed_row_height("decision_tree_text"))
             
     @staticmethod
     def _write_results_sheet(workbook, results, fmt, sheet_name="Statistical Results"):
@@ -9048,7 +9034,7 @@ class ResultsExporter:
             )
             
         ws.merge_range('A2:M2', intro, fmt["explanation"])
-        ws.set_row(1, ResultsExporter.get_text_height(intro, 22*10))
+        ws.set_row(1, ResultsExporter.get_fixed_row_height("results_intro"))
 
         # Main result table
         row = 4
@@ -9242,7 +9228,7 @@ class ResultsExporter:
             "The analysis shows no statistically significant difference between the groups."
         )
         ws.merge_range(f'A{row}:F{row}', interpretation, fmt["explanation"])
-        ws.set_row(row, ResultsExporter.get_text_height(interpretation, 22*6))
+        ws.set_row(row, ResultsExporter.get_fixed_row_height("results_interpretation"))
         row += 2
 
         # Add a permutation explanation if applicable
@@ -9258,7 +9244,7 @@ class ResultsExporter:
                 "assumptions are violated."
             )
             ws.merge_range(f'A{row}:F{row}', perm_explanation, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(perm_explanation, 22*6))
+            ws.set_row(row, ResultsExporter.get_fixed_row_height("permutation_explanation"))
             row += 2
 
         # Post-hoc tests information
@@ -9280,7 +9266,7 @@ class ResultsExporter:
             "or you can choose specific comparisons through the user interface."
         )
         ws.merge_range(f'A{row}:F{row}', posthoc_info, fmt["explanation"])
-        ws.set_row(row, ResultsExporter.get_text_height(posthoc_info, 22*6))
+        ws.set_row(row, ResultsExporter.get_fixed_row_height("posthoc_info_detailed"))
         row += 2
         
         # Show which specific post-hoc test was performed, if any
@@ -9298,7 +9284,7 @@ class ResultsExporter:
                 comparison_info += " (no comparisons performed - main test not significant or error occurred)"
             
             ws.merge_range(f'A{row}:F{row}', comparison_info, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(comparison_info, 22*6))
+            ws.set_row(row, ResultsExporter.get_fixed_row_height("comparison_info_detailed"))
     
 
     @staticmethod
@@ -9318,7 +9304,7 @@ class ResultsExporter:
             "Transformed values are also shown if a transformation was performed."
         )
         ws.merge_range('A2:J2', desc_explanation, fmt["explanation"])
-        ws.set_row(1, ResultsExporter.get_text_height(desc_explanation, 20*10))
+        ws.set_row(1, ResultsExporter.get_fixed_row_height("descriptive_intro"))
 
         # Header
         headers = [
@@ -9477,8 +9463,8 @@ class ResultsExporter:
             "• Custom Mann-Whitney-U (Sidak): User-selected pairs with Sidak correction\n"
             "• Dependent Post-hoc: For repeated measures designs (paired t-tests or Wilcoxon)"
         )
-        ws.merge_range('A2:H2', pw_explanation, fmt["explanation"])  # Increased merge range
-        ws.set_row(1, ResultsExporter.get_text_height(pw_explanation, 22*8))  # Adjusted width factor
+        ws.merge_range('A2:H2', pw_explanation, fmt["explanation"])  # Text in Excel row 2
+        ws.set_row(1, ResultsExporter.get_fixed_row_height("pairwise_intro"))  # Set height for row 2 (1-indexed)
     
         # Header
         headers = ["Group 1", "Group 2", "Test", "p-Value", "Corrected", "Significant", "Effect size", "95% CI Difference"]
@@ -9793,7 +9779,7 @@ class ResultsExporter:
             "Each paragraph describes a key step or decision in the analysis process."
         )
         ws.write(1, 0, log_explanation, fmt["explanation"])
-        ws.set_row(1, ResultsExporter.get_text_height(log_explanation, 80))
+        ws.set_row(1, ResultsExporter.get_fixed_row_height("log_explanation"))
 
         row = 3
 
@@ -9912,77 +9898,137 @@ class ResultsExporter:
                 "Post-hoc tests were performed for more precise group comparisons where applicable."
             )
             ws.write(row, 0, summary_text, fmt["explanation"])
-            ws.set_row(row, ResultsExporter.get_text_height(summary_text, 80))
+            ws.set_row(row, ResultsExporter.get_fixed_row_height("log_explanation"))
                 
     @staticmethod
     def get_text_height(text, width):
         """
-        Calculates the approximate row height based on text length and cell width,
-        with caching to optimize repeated calls.
+        Simplified wrapper that uses calc_robust_text_height for consistency.
+        Maintains backward compatibility with existing code.
         """
-        # Static cache for already calculated heights
-        if not hasattr(ResultsExporter.get_text_height, "_cache"):
-            ResultsExporter.get_text_height._cache = {}
-    
-        # Build cache key (text length + width as approximation)
-        cache_key = (len(text), width)
-    
-        # Return from cache if already calculated
-        if cache_key in ResultsExporter.get_text_height._cache:
-            return ResultsExporter.get_text_height._cache[cache_key]
-    
-        # Default height for empty text
-        if not text:
-            return 15
-    
-        # Count actual lines in the text
-        lines = text.count('\n') + 1
-    
-        # Estimate additional lines based on text length and cell width
-        avg_chars_per_line = width * 0.8
-        text_length = len(text)
-        estimated_lines = text_length / avg_chars_per_line
-    
-        # Take the higher value
-        total_lines = max(lines, estimated_lines)
-    
-        # 15 points per line plus some spacing
-        result = max(15, int(total_lines * 15 + 5))
-    
-        # Store result in cache
-        ResultsExporter.get_text_height._cache[cache_key] = result
-    
-        return result
+        # Use the optimized calc_robust_text_height method
+        return ResultsExporter.calc_robust_text_height(text, width, line_height_pts=15.0)
     
     @staticmethod
+    def get_fixed_row_height(field_identifier: str, default_height: float = 25.0) -> float:
+        """
+        Get predefined optimal heights for specific Excel fields.
+        Since text content is always the same, we can use fixed optimal heights.
+        """
+        fixed_heights = {
+            # Summary sheet
+            "summary_conclusion": 40.0,           # KEY STATEMENT conclusion text
+            "summary_navigation": 120.0,          # NAVIGATION TO DETAILED RESULTS - reduced from 140
+            "summary_posthoc_info": 100.0,        # POST-HOC TESTS PERFORMED - increased from 80
+            
+            # Assumptions sheet  
+            "assumptions_intro": 60.0,            # Introduction text at top
+            "assumptions_overview": 200.0,        # OVERVIEW OF ASSUMPTIONS - very long with bullet points
+            "sphericity_explanation": 45.0,       # Sphericity test explanation
+            "normality_explanation": 45.0,        # Normality test explanation
+            "homogeneity_explanation": 45.0,      # Homogeneity test explanation
+            "visual_intro": 210.0,                # VISUAL ASSUMPTION CHECKING - very long with emojis
+            "qq_plot_explanation": 420.0,         # Q-Q plot detailed explanation - very detailed
+            "boxplot_explanation": 420.0,         # Boxplot detailed explanation - very detailed
+            "practical_advice": 160.0,            # Practical interpretation advice - very long
+            "technical_details": 140.0,           # Technical details section - long
+            
+            # ANOVA explanations - these are the long detailed ones
+            "anova_source_explanation": 140.0,    # Source column explanation - increased for full text
+            "anova_ss_explanation": 120.0,        # SS explanation - increased for full text  
+            "anova_df_explanation": 160.0,        # DF explanation - increased for full text
+            "anova_ms_explanation": 120.0,        # MS explanation - increased for full text
+            "anova_f_explanation": 140.0,         # F-statistic explanation - increased for full text
+            "anova_p_explanation": 140.0,         # p-value explanation - increased for full text
+            "anova_np2_explanation": 160.0,       # Partial Eta Squared - increased for full text
+            
+            # Results interpretation
+            "results_interpretation": 180.0,      # HOW TO INTERPRET - significantly increased for 4 points
+            
+            # Additional specific text blocks that need fixed heights
+            "general_note": 60.0,                  # General notes in summary
+            "intro_anova_text": 70.0,             # ANOVA introduction text
+            "sphericity_detail": 45.0,            # Sphericity test details
+            "normality_detail": 45.0,             # Normality test details
+            "side_by_side_qq": 260.0,             # Side-by-side Q-Q explanations - significantly increased for long text
+            "side_by_side_box": 180.0,            # Side-by-side boxplot explanations - very long
+            "why_section": 160.0,                 # Why sections in visual - long with explanations
+            "qq_section": 180.0,                  # Q-Q plot sections - very detailed
+            "boxplot_section": 180.0,             # Boxplot sections - very detailed
+            "practical_section": 180.0,           # Practical advice sections - very long
+            "technical_section": 160.0,           # Technical details sections - long
+            "transformation_info": 50.0,          # Transformation information
+            "comparison_intro": 100.0,            # Comparison introduction text
+            "results_summary": 80.0,              # Results summary text
+            "decision_tree_text": 90.0,           # Decision tree explanations
+            "results_intro": 80.0,                # Results sheet introduction
+            "permutation_explanation": 80.0,      # Permutation test explanations
+            "posthoc_info_detailed": 50.0,        # Detailed post-hoc information (reduced)
+            "comparison_info_detailed": 70.0,     # Detailed comparison information
+            "descriptive_intro": 70.0,            # Descriptive statistics introduction
+            "pairwise_intro": 140.0,              # Pairwise comparisons introduction - has many bullet points
+            
+            # Other sheets
+            "descriptive_explanation": 80.0,      # Descriptive statistics explanation
+            "pairwise_explanation": 100.0,        # Pairwise comparisons explanation
+            "log_explanation": 40.0,              # Analysis log explanation
+            
+            # Default categories
+            "short_text": 25.0,                   # Headers and short labels
+            "medium_text": 45.0,                  # Medium explanations
+            "long_text": 80.0,                    # Long explanations
+            "bullet_list": 120.0,                 # Lists with multiple bullets
+        }
+        
+        return fixed_heights.get(field_identifier, default_height)
+
+    @staticmethod
     def calc_robust_text_height(text: str, total_char_width: int, line_height_pts: float = 15.0) -> float:
-        """
-        Calculate precise row height for text content using text wrapping analysis.
-        This provides more accurate height calculation than the basic get_text_height method.
-        
-        Args:
-            text: The text content to calculate height for
-            total_char_width: Total character width available (column_width * num_columns)  
-            line_height_pts: Points per line (default 15.0)
-        
-        Returns:
-            Row height in points
-        """
+
         import textwrap
         if not text:
             return 18.0
         
-        # For very long texts, use a simple character-based estimate
-        # This is more reliable for Excel formatting
+        # If total_char_width is very large (like 330), convert to reasonable estimate
+        if total_char_width > 200:
+            # Assume it's a merge_range A:F (55 + 5*20 = 155)
+            total_char_width = 155
+        elif total_char_width > 100 and total_char_width < 200:
+            # Assume it's approximately correct for merge range
+            pass  
+        elif total_char_width < 30:
+            # Too small, assume single column A
+            total_char_width = 55
+        
+        # Character counting with intelligent text type detection
         char_count = len(text)
-        estimated_lines = max(3, char_count // 80)  # Assume 80 characters per line
-        
-        # Add extra lines for line breaks
         line_breaks = text.count('\n')
-        estimated_lines += line_breaks
+        bullet_points = text.count('•')
         
-        # Be very generous with height calculation
-        height = max(60.0, estimated_lines * line_height_pts * 1.5)  # 50% extra space
+        # Use textwrap to get more accurate line estimation
+        wrapped_lines = textwrap.wrap(text.replace('\n', ' '), width=total_char_width)
+        textwrap_lines = len(wrapped_lines)
+        
+        # Different estimation based on text characteristics
+        if char_count < 80:
+            # Very short text - minimal calculation
+            estimated_lines = max(1, textwrap_lines + line_breaks)
+            buffer_factor = 1.25  # Adequate buffer for short texts
+        elif char_count < 200:
+            # Medium text - conservative
+            estimated_lines = max(1, textwrap_lines + line_breaks) 
+            buffer_factor = 1.30  # Good buffer for medium text
+        elif bullet_points > 3:
+            # Bullet-heavy text - needs extra space
+            estimated_lines = max(textwrap_lines, line_breaks + bullet_points)
+            buffer_factor = 1.45  # Extra buffer for bullet formatting
+        else:
+            # Normal longer text - use wrapped lines with line breaks
+            estimated_lines = max(2, textwrap_lines + line_breaks)
+            buffer_factor = 1.35  # Good standard buffer
+        
+        # Calculate final height with adequate buffer
+        height = max(30.0, estimated_lines * line_height_pts * buffer_factor)
         
         return height
     

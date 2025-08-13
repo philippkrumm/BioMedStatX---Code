@@ -4,23 +4,33 @@ import os
 
 block_cipher = None
 
-# Platform-specific icon handling
+# Get absolute path to the script directory
+script_dir = os.getcwd()  # Use current working directory instead of __file__
+
+# Platform-specific icon handling with absolute paths
 if sys.platform.startswith('win'):
-    icon_file = 'assets/Institutslogo.ico'
+    icon_file = os.path.join(script_dir, 'assets', 'Institutslogo.ico')
 elif sys.platform.startswith('darwin'):
-    icon_file = 'assets/Institutslogo.ico'  # macOS can handle .ico files
+    icon_file = os.path.join(script_dir, 'assets', 'Institutslogo.ico')  # macOS can handle .ico files
 else:
     icon_file = None  # Linux doesn't use icons in the same way
 
+# Verify icon file exists
+if icon_file and not os.path.exists(icon_file):
+    print(f"WARNING: Icon file not found at {icon_file}")
+    icon_file = None
+else:
+    print(f"Using icon file: {icon_file}")
+
 a = Analysis(
-    ['src/statistical_analyzer.py'],
-    pathex=[],
+    [os.path.join(script_dir, 'src', 'statistical_analyzer.py')],
+    pathex=[script_dir],
     binaries=[],
     datas=[
-        ('assets/StyleSheet.qss', 'assets'),
-        ('assets/Institutslogo.ico', 'assets'),
-        ('assets/StatisticalAnalyzer_Excel_Template.xlsx', 'assets'),
-        ('assets/HowToScreenshots', 'assets/HowToScreenshots'),
+        (os.path.join(script_dir, 'assets', 'StyleSheet.qss'), 'assets'),
+        (os.path.join(script_dir, 'assets', 'Institutslogo.ico'), 'assets'),
+        (os.path.join(script_dir, 'assets', 'StatisticalAnalyzer_Excel_Template.xlsx'), 'assets'),
+        (os.path.join(script_dir, 'assets', 'HowToScreenshots'), 'assets/HowToScreenshots'),
     ],
     hiddenimports=[
         'matplotlib.backends.backend_svg',
