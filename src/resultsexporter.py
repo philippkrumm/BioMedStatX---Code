@@ -328,7 +328,7 @@ class ResultsExporter:
                         os.remove(temp_file)
                     except Exception:
                         pass
-                ResultsExporter._temp_files.clear()
+            ResultsExporter._temp_files.clear()
         
         return excel_path
 
@@ -1068,8 +1068,13 @@ class ResultsExporter:
         test_info = results.get("test_info", {})
         transformation = results.get("transformation", "None")
         
+        print(f"DEBUG VARIANCE EXCEL: test_info keys: {list(test_info.keys())}")
+        if "pre_transformation" in test_info:
+            print(f"DEBUG VARIANCE EXCEL: pre_transformation keys: {list(test_info['pre_transformation'].keys())}")
+        
         # Display pre-transformation variance test
         if "pre_transformation" in test_info and "variance" in test_info["pre_transformation"]:
+            print("DEBUG VARIANCE EXCEL: Writing pre-transformation variance test")
             pre_var = test_info["pre_transformation"]["variance"]
             stat = pre_var.get('statistic', 'N/A')
             p_val = pre_var.get('p_value', 'N/A')
@@ -1091,11 +1096,14 @@ class ResultsExporter:
                 cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
                 ws.write(row, col, val, cell_fmt)
             row += 1
+        else:
+            print("DEBUG VARIANCE EXCEL: No pre-transformation variance test found")
         
         # Display post-transformation variance test if transformation was applied
         if (transformation and transformation not in ["None", "No further"] and 
             "post_transformation" in test_info and "variance" in test_info["post_transformation"]):
             
+            print("DEBUG VARIANCE EXCEL: Writing post-transformation variance test")
             post_var = test_info["post_transformation"]["variance"]
             stat = post_var.get('statistic', 'N/A')
             p_val = post_var.get('p_value', 'N/A')
@@ -1117,6 +1125,8 @@ class ResultsExporter:
                 cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
                 ws.write(row, col, val, cell_fmt)
             row += 1
+        else:
+            print("DEBUG VARIANCE EXCEL: No post-transformation variance test found or no transformation applied")
     
         # VISUAL EXAMINATION SECTION (for all cases)
         ws.merge_range(f'A{row}:F{row}', "VISUAL EXAMINATION OF ASSUMPTIONS", fmt["section_header"])
