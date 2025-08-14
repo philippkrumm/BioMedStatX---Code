@@ -159,8 +159,9 @@ class AssumptionVisualizer:
             if len(clean_residuals) < 3:
                 return None
             
-            # Create single Q-Q plot (larger size for better readability)
-            fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+            # Create single Q-Q plot - use FIXED size for consistency between before/after
+            # Fixed size ensures both before and after plots are identical
+            fig, ax = plt.subplots(1, 1, figsize=(12, 6))  # Fixed 12x6 for all QQ plots
             
             # Create Q-Q plot of residuals
             stats.probplot(clean_residuals, dist="norm", plot=ax)
@@ -195,7 +196,8 @@ class AssumptionVisualizer:
             temp_filename = f"normality_plot_{int(time.time())}.png"
             temp_path = os.path.join(temp_dir, temp_filename)
             
-            fig.savefig(temp_path, dpi=300, bbox_inches='tight', facecolor='white')
+            # Use consistent saving parameters - no tight bbox to ensure consistent sizing
+            fig.savefig(temp_path, dpi=300, bbox_inches=None, facecolor='white', pad_inches=0.2)
             plt.close(fig)
             
             print(f"DEBUG: Generated normality plot: {temp_path}")
@@ -233,8 +235,9 @@ class AssumptionVisualizer:
             if not data_dict:
                 return None
             
-            # Create larger figure for better readability
-            fig, ax = plt.subplots(1, 1, figsize=(max(12, len(data_dict) * 2), 8))
+            # Create figure with FIXED size for consistency between before/after
+            # Fixed size ensures both before and after plots are identical
+            fig, ax = plt.subplots(1, 1, figsize=(12, 6))  # Fixed 12x6 for all boxplots
             
             # Prepare data for boxplot
             group_names = []
@@ -287,7 +290,8 @@ class AssumptionVisualizer:
             temp_filename = f"homoscedasticity_plot_{int(time.time())}.png"
             temp_path = os.path.join(temp_dir, temp_filename)
             
-            fig.savefig(temp_path, dpi=300, bbox_inches='tight', facecolor='white')
+            # Use consistent saving parameters - no tight bbox to ensure consistent sizing
+            fig.savefig(temp_path, dpi=300, bbox_inches=None, facecolor='white', pad_inches=0.2)
             plt.close(fig)
             
             print(f"DEBUG: Generated homoscedasticity plot: {temp_path}")
@@ -343,17 +347,17 @@ class AssumptionVisualizer:
             
             # Generate BEFORE transformation plots
             if raw_data_filtered:
-                print(f"DEBUG: Generating plots for {len(raw_data_filtered)} groups: {list(raw_data_filtered.keys())}")
+                print(f"DEBUG: Generating BEFORE plots for {len(raw_data_filtered)} groups: {list(raw_data_filtered.keys())}")
                 plot_paths['normality_before'] = AssumptionVisualizer.create_normality_plot(
                     raw_data_filtered, " - Before Transformation" if transformation and transformation.lower() != 'none' else "",
                     results=results
                 )
-                print(f"DEBUG: Q-Q plot path: {plot_paths['normality_before']}")
+                print(f"DEBUG: Q-Q plot BEFORE path: {plot_paths['normality_before']}")
                 
                 plot_paths['homoscedasticity_before'] = AssumptionVisualizer.create_homoscedasticity_plot(
                     raw_data_filtered, " - Before Transformation" if transformation and transformation.lower() != 'none' else ""
                 )
-                print(f"DEBUG: Boxplot path: {plot_paths['homoscedasticity_before']}")
+                print(f"DEBUG: Boxplot BEFORE path: {plot_paths['homoscedasticity_before']}")
             else:
                 print("DEBUG: No valid raw data found after filtering")
             
@@ -361,12 +365,15 @@ class AssumptionVisualizer:
             if transformed_data and transformation and transformation.lower() != 'none':
                 transformed_filtered = {k: v for k, v in transformed_data.items() if k.lower() not in ['group', 'sample', '']}
                 if transformed_filtered:
+                    print(f"DEBUG: Generating AFTER plots for {len(transformed_filtered)} groups: {list(transformed_filtered.keys())}")
                     plot_paths['normality_after'] = AssumptionVisualizer.create_normality_plot(
                         transformed_filtered, " - After Transformation", transformation, results=results
                     )
                     plot_paths['homoscedasticity_after'] = AssumptionVisualizer.create_homoscedasticity_plot(
                         transformed_filtered, " - After Transformation", transformation
                     )
+                    print(f"DEBUG: Q-Q plot AFTER path: {plot_paths['normality_after']}")
+                    print(f"DEBUG: Boxplot AFTER path: {plot_paths['homoscedasticity_after']}")
             
             # Track all generated files for cleanup
             for plot_path in plot_paths.values():
@@ -1727,6 +1734,10 @@ class StatisticalTester:
         import pandas as pd
         from statsmodels.formula.api import ols
 
+        print(f"DEBUG check_normality_and_variance: Starting assumption tests")
+        print(f"DEBUG check_normality_and_variance: model_type={model_type}, formula={formula}")
+        print(f"DEBUG check_normality_and_variance: Groups: {groups}")
+
         test_info = {"pre_transformation": {}, "post_transformation": {}, "transformation": None}
         valid_groups = [g for g in groups if g in samples and len(samples[g]) > 0]
         transformed_samples = {g: samples[g].copy() for g in valid_groups}
@@ -1737,6 +1748,7 @@ class StatisticalTester:
             if model_type == "twoway":
                 # For Two-Way ANOVA, extract factors from group labels like "FactorA=val1, FactorB=val2"
                 data_rows = []
+                factor_names = []
                 for g in valid_groups:
                     for v in samps[g]:
                         # Parse group label to extract factor values
@@ -1748,29 +1760,45 @@ class StatisticalTester:
                                 if len(factor_a_part) == 2 and len(factor_b_part) == 2:
                                     factor_a_name, factor_a_val = factor_a_part
                                     factor_b_name, factor_b_val = factor_b_part
+                                    # Store original factor names for later
+                                    if not factor_names:
+                                        factor_names = [factor_a_name.strip(), factor_b_name.strip()]
                                     data_rows.append({
                                         "Group": g,
                                         "Value": v,
-                                        factor_a_name.strip(): factor_a_val.strip(),
-                                        factor_b_name.strip(): factor_b_val.strip()
+                                        "FactorA": factor_a_val.strip(),  # Use simple column names without spaces
+                                        "FactorB": factor_b_val.strip()
                                     })
                                     continue
                         # Fallback for malformed group labels
                         data_rows.append({"Group": g, "Value": v})
                 
-                return pd.DataFrame(data_rows)
+                df = pd.DataFrame(data_rows)
+                # Store the original factor names for reference
+                df.attrs['original_factor_names'] = factor_names if factor_names else ['FactorA', 'FactorB']
+                return df
             else:
                 # For other models, use simple Group/Value structure
                 return pd.DataFrame([
                     {"Group": g, "Value": v} for g in valid_groups for v in samps[g]
                 ])
         df_raw = make_df(samples)
+        
+        # Adjust formula for Two-Way ANOVA if needed
+        adjusted_formula = formula
+        if model_type == "twoway" and "FactorA" in df_raw.columns and "FactorB" in df_raw.columns:
+            adjusted_formula = "Value ~ C(FactorA) * C(FactorB)"
+            print(f"DEBUG SHAPIRO: Adjusted formula for Two-Way ANOVA: {adjusted_formula}")
+        
         from scipy import stats
         try:
-            model_raw = ols(formula, data=df_raw).fit()
+            model_raw = ols(adjusted_formula, data=df_raw).fit()
             resid_raw = model_raw.resid
+            print(f"DEBUG SHAPIRO: Raw residuals length: {len(resid_raw)}, unique values: {len(set(resid_raw))}")
             stat, pval = stats.shapiro(resid_raw) if len(resid_raw) >= 3 and len(set(resid_raw)) > 1 else (None, None)
+            print(f"DEBUG SHAPIRO: Pre-transformation Shapiro-Wilk: W={stat}, p={pval}")
         except Exception as e:
+            print(f"DEBUG SHAPIRO ERROR: Failed pre-transformation Shapiro-Wilk test: {str(e)}")
             stat, pval = None, None
         test_info["pre_transformation"]["residuals_normality"] = {
             "statistic": stat, "p_value": pval, "is_normal": (pval > 0.05 if pval is not None else False)
@@ -1779,12 +1807,16 @@ class StatisticalTester:
         # Levene test on raw data (Brown-Forsythe test using median)
         try:
             data_for_levene = [samples[g] for g in valid_groups]
+            print(f"DEBUG BROWN-FORSYTHE: Pre-transformation - Groups: {len(valid_groups)}, Data lengths: {[len(v) for v in data_for_levene]}")
             if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene):
                 stat, pval = stats.levene(*data_for_levene, center='median')
                 has_equal_variance = pval > 0.05
+                print(f"DEBUG BROWN-FORSYTHE: Pre-transformation - Statistic: {stat}, p-value: {pval}, Equal variance: {has_equal_variance}")
             else:
                 stat, pval, has_equal_variance = None, None, False
-        except Exception:
+                print(f"DEBUG BROWN-FORSYTHE: Pre-transformation - Insufficient data for test")
+        except Exception as e:
+            print(f"DEBUG BROWN-FORSYTHE ERROR: Pre-transformation failed: {str(e)}")
             stat, pval, has_equal_variance = None, None, False
         test_info["pre_transformation"]["variance"] = {
             "statistic": stat, "p_value": pval, "equal_variance": has_equal_variance
@@ -1839,11 +1871,16 @@ class StatisticalTester:
 
         # Fit model and check residuals normality on transformed data
         df_tr = make_df(transformed_samples)
+        
+        # Use the same adjusted formula for transformed data
         try:
-            model_tr = ols(formula, data=df_tr).fit()
+            model_tr = ols(adjusted_formula, data=df_tr).fit()
             resid_tr = model_tr.resid
+            print(f"DEBUG SHAPIRO: Transformed residuals length: {len(resid_tr)}, unique values: {len(set(resid_tr))}")
             stat2, pval2 = stats.shapiro(resid_tr) if len(resid_tr) >= 3 and len(set(resid_tr)) > 1 else (None, None)
-        except Exception:
+            print(f"DEBUG SHAPIRO: Post-transformation Shapiro-Wilk: W={stat2}, p={pval2}")
+        except Exception as e:
+            print(f"DEBUG SHAPIRO ERROR: Failed post-transformation Shapiro-Wilk test: {str(e)}")
             stat2, pval2 = None, None
         test_info["post_transformation"]["residuals_normality"] = {
             "statistic": stat2, "p_value": pval2, "is_normal": (pval2 > 0.05 if pval2 is not None else False)
@@ -1852,12 +1889,16 @@ class StatisticalTester:
         # Levene test on transformed data
         try:
             data_for_levene_tr = [transformed_samples[g] for g in valid_groups]
+            print(f"DEBUG BROWN-FORSYTHE: Post-transformation - Groups: {len(valid_groups)}, Data lengths: {[len(v) for v in data_for_levene_tr]}")
             if len(valid_groups) >= 2 and all(len(v) >= 3 for v in data_for_levene_tr):
                 stat_tr, pval_tr = stats.levene(*data_for_levene_tr, center='median')
                 has_equal_variance_tr = pval_tr > 0.05
+                print(f"DEBUG BROWN-FORSYTHE: Post-transformation - Statistic: {stat_tr}, p-value: {pval_tr}, Equal variance: {has_equal_variance_tr}")
             else:
                 stat_tr, pval_tr, has_equal_variance_tr = None, None, False
-        except Exception:
+                print(f"DEBUG BROWN-FORSYTHE: Post-transformation - Insufficient data for test")
+        except Exception as e:
+            print(f"DEBUG BROWN-FORSYTHE ERROR: Post-transformation failed: {str(e)}")
             stat_tr, pval_tr, has_equal_variance_tr = None, None, False
         test_info["post_transformation"]["variance"] = {
             "statistic": stat_tr, "p_value": pval_tr, "equal_variance": has_equal_variance_tr
@@ -1886,6 +1927,13 @@ class StatisticalTester:
             test_info["note"] = "Normal distribution but unequal variances – Welch's ANOVA will be used."
         else:
             test_recommendation = "non_parametric"
+
+        print(f"DEBUG check_normality_and_variance: Final test_info structure:")
+        print(f"  Pre-transformation normality: {test_info['pre_transformation'].get('residuals_normality', 'Missing')}")
+        print(f"  Pre-transformation variance: {test_info['pre_transformation'].get('variance', 'Missing')}")
+        print(f"  Post-transformation normality: {test_info['post_transformation'].get('residuals_normality', 'Missing')}")
+        print(f"  Post-transformation variance: {test_info['post_transformation'].get('variance', 'Missing')}")
+        print(f"  Test recommendation: {test_recommendation}")
 
         return transformed_samples, test_recommendation, test_info
     
@@ -2710,8 +2758,10 @@ class StatisticalTester:
                         subset = df[(df[b_factor] == b_val) & (df[w_factor] == w_val)]
                         samples[group_label] = subset[dv].tolist()
                 groups = list(samples.keys())
-                # Formula for Mixed ANOVA (for assumption checking)
-                formula = f"Value ~ C({b_factor}) * C({w_factor})"
+                # Formula for Mixed ANOVA (for assumption checking) - use sanitized names
+                sanitized_b_factor = b_factor.replace(' ', '') if ' ' in b_factor else b_factor
+                sanitized_w_factor = w_factor.replace(' ', '') if ' ' in w_factor else w_factor
+                formula = f"Value ~ C({sanitized_b_factor}) * C({sanitized_w_factor})"
 
             elif test == 'repeated_measures_anova':
                 if not within:
@@ -2720,8 +2770,9 @@ class StatisticalTester:
                 for lvl in df[w_factor].unique():
                     samples[lvl] = df[df[w_factor] == lvl][dv].tolist()
                 groups = list(samples.keys())
-                # Formula for RM-ANOVA (for assumption checking)
-                formula = f"Value ~ C({w_factor})"
+                # Formula for RM-ANOVA (for assumption checking) - use sanitized names
+                sanitized_w_factor = w_factor.replace(' ', '') if ' ' in w_factor else w_factor
+                formula = f"Value ~ C({sanitized_w_factor})"
 
             elif test == 'two_way_anova':
                 if not between or len(between) != 2:
@@ -2733,8 +2784,10 @@ class StatisticalTester:
                         subset = df[(df[fA] == a_val) & (df[fB] == b_val)]
                         samples[group_label] = subset[dv].tolist()
                 groups = list(samples.keys())
-                # Formula for Two-Way ANOVA (for assumption checking)
-                formula = f"Value ~ C({fA}) * C({fB})"
+                # Formula for Two-Way ANOVA (for assumption checking) - use sanitized names
+                sanitized_fA = fA.replace(' ', '') if ' ' in fA else fA
+                sanitized_fB = fB.replace(' ', '') if ' ' in fB else fB
+                formula = f"Value ~ C({sanitized_fA}) * C({sanitized_fB})"
 
             else:
                 return {"error": f"Unknown test type: {test}"}
@@ -3074,7 +3127,7 @@ class StatisticalTester:
                         test_info=test_info  # Pass test_info here
                     )
                 else:
-                    res = StatisticalTester._run_two_way_anova_logged(df_transformed, dv, between, alpha)
+                    res = StatisticalTester._run_two_way_anova_logged(df_transformed, dv, between, alpha, test_info=test_info)
                 res.update(result)
                 # Set test info at top level
                 if test_info:
@@ -3097,6 +3150,59 @@ class StatisticalTester:
                         res["transformation"] = ti["transformation"]
                     if "boxcox_lambda" in ti and "boxcox_lambda" not in res:
                         res["boxcox_lambda"] = ti["boxcox_lambda"]
+                    
+                    # CRITICAL FIX: Convert new structure to old structure for Excel compatibility
+                    if "pre_transformation" in ti and "post_transformation" in ti and "normality_tests" not in res:
+                        # Create normality_tests structure from pre/post transformation data
+                        normality_tests = {"all_data": {}, "transformed_data": {}}
+                        
+                        # Pre-transformation (original) data
+                        if "residuals_normality" in ti["pre_transformation"]:
+                            pre_norm = ti["pre_transformation"]["residuals_normality"]
+                            normality_tests["all_data"] = {
+                                "statistic": pre_norm.get("statistic") if pre_norm.get("statistic") is not None else "N/A",
+                                "p_value": pre_norm.get("p_value") if pre_norm.get("p_value") is not None else "N/A",
+                                "is_normal": pre_norm.get("is_normal", False)
+                            }
+                        
+                        # Post-transformation data
+                        if "residuals_normality" in ti["post_transformation"]:
+                            post_norm = ti["post_transformation"]["residuals_normality"]
+                            normality_tests["transformed_data"] = {
+                                "statistic": post_norm.get("statistic") if post_norm.get("statistic") is not None else "N/A",
+                                "p_value": post_norm.get("p_value") if post_norm.get("p_value") is not None else "N/A",
+                                "is_normal": post_norm.get("is_normal", False)
+                            }
+                        
+                        res["normality_tests"] = normality_tests
+                    
+                    # CRITICAL FIX: Convert variance test structure for Excel compatibility
+                    if "pre_transformation" in ti and "post_transformation" in ti and "variance_test" not in res:
+                        variance_test = {}
+                        
+                        # Pre-transformation variance test
+                        if "variance" in ti["pre_transformation"]:
+                            pre_var = ti["pre_transformation"]["variance"]
+                            variance_test.update({
+                                "statistic": pre_var.get("statistic") if pre_var.get("statistic") is not None else "N/A",
+                                "p_value": pre_var.get("p_value") if pre_var.get("p_value") is not None else "N/A",
+                                "equal_variance": pre_var.get("equal_variance", False)
+                            })
+                        
+                        # Post-transformation variance test
+                        if "variance" in ti["post_transformation"]:
+                            post_var = ti["post_transformation"]["variance"]
+                            variance_test["transformed"] = {
+                                "statistic": post_var.get("statistic") if post_var.get("statistic") is not None else "N/A",
+                                "p_value": post_var.get("p_value") if post_var.get("p_value") is not None else "N/A",
+                                "equal_variance": post_var.get("equal_variance", False)
+                            }
+                        
+                        res["variance_test"] = variance_test
+                    
+                    # Also ensure transformation is accessible from test_info at top level
+                    if "transformation" in ti and "transformation" not in res:
+                        res["transformation"] = ti["transformation"]
 
                 # --- POST-HOC for all advanced tests ---
                 if res.get("p_value") is not None and res["p_value"] < alpha:
@@ -3434,7 +3540,7 @@ class StatisticalTester:
         if test_info:
             log_step("Starting with test_info from preceding normality and variance tests.")
             
-            # Log normality test results
+            # Log normality test results - handle both old and new structure
             if "normality_tests" in test_info:
                 norm_tests = test_info["normality_tests"]
                 if "all_data" in norm_tests and "p_value" in norm_tests["all_data"]:
@@ -3447,7 +3553,26 @@ class StatisticalTester:
                     is_normal = norm_tests["transformed_data"].get("is_normal", False)
                     log_step(f"Transformed normality test: p = {p_val:.4f} - {'Normal' if is_normal else 'Not normal'}")
             
-            # Log variance test results
+            # Handle new structure from check_assumptions_and_transform
+            elif "pre_transformation" in test_info and "post_transformation" in test_info:
+                # Log pre-transformation normality
+                pre_norm = test_info["pre_transformation"].get("residuals_normality", {})
+                if "p_value" in pre_norm and pre_norm["p_value"] is not None:
+                    p_val = pre_norm["p_value"]
+                    stat_val = pre_norm.get("statistic", "N/A")
+                    is_normal = pre_norm.get("is_normal", False)
+                    log_step(f"Original data normality (Shapiro-Wilk): W = {stat_val:.4f}, p = {p_val:.4f} - {'Normal' if is_normal else 'Not normal'}")
+                
+                # Log post-transformation normality
+                post_norm = test_info["post_transformation"].get("residuals_normality", {})
+                if "p_value" in post_norm and post_norm["p_value"] is not None:
+                    p_val = post_norm["p_value"]
+                    stat_val = post_norm.get("statistic", "N/A")
+                    is_normal = post_norm.get("is_normal", False)
+                    transformation = test_info.get("transformation", "No transformation")
+                    log_step(f"After {transformation} transformation normality (Shapiro-Wilk): W = {stat_val:.4f}, p = {p_val:.4f} - {'Normal' if is_normal else 'Not normal'}")
+            
+            # Log variance test results - handle both old and new structure
             if "variance_test" in test_info:
                 var_test = test_info["variance_test"]
                 if "p_value" in var_test:
@@ -3458,6 +3583,26 @@ class StatisticalTester:
                 if "transformed" in var_test and "p_value" in var_test["transformed"]:
                     p_val = var_test["transformed"]["p_value"] 
                     is_equal = var_test["transformed"].get("equal_variance", False)
+                    log_step(f"Transformed variance test: p = {p_val:.4f} - {'Equal' if is_equal else 'Not equal'}")
+            
+            # Handle new structure from check_assumptions_and_transform
+            elif "pre_transformation" in test_info and "post_transformation" in test_info:
+                # Log pre-transformation variance
+                pre_var = test_info["pre_transformation"].get("variance", {})
+                if "p_value" in pre_var and pre_var["p_value"] is not None:
+                    p_val = pre_var["p_value"]
+                    stat_val = pre_var.get("statistic", "N/A")
+                    is_equal = pre_var.get("equal_variance", False)
+                    log_step(f"Original data variance homogeneity (Brown-Forsythe): F = {stat_val:.4f}, p = {p_val:.4f} - {'Equal' if is_equal else 'Unequal'}")
+                
+                # Log post-transformation variance
+                post_var = test_info["post_transformation"].get("variance", {})
+                if "p_value" in post_var and post_var["p_value"] is not None:
+                    p_val = post_var["p_value"]
+                    stat_val = post_var.get("statistic", "N/A")
+                    is_equal = post_var.get("equal_variance", False)
+                    transformation = test_info.get("transformation", "No transformation")
+                    log_step(f"After {transformation} transformation variance homogeneity (Brown-Forsythe): F = {stat_val:.4f}, p = {p_val:.4f} - {'Equal' if is_equal else 'Unequal'}")
                     log_step(f"Transformed variance test: p = {p_val:.4f} - {'Equal' if is_equal else 'Not equal'}")
 
         log_step(f"Start parametric test: {test_func.__name__}")
@@ -3592,7 +3737,7 @@ class StatisticalTester:
         return raw
     
     @staticmethod
-    def _run_two_way_anova_logged(df, dv, between, alpha=0.05):
+    def _run_two_way_anova_logged(df, dv, between, alpha=0.05, test_info=None):
         return StatisticalTester._run_any_parametric_test(
             df=df,
             dv=dv,
@@ -3601,7 +3746,8 @@ class StatisticalTester:
             within=None,
             alpha=alpha,
             test_func=StatisticalTester._run_two_way_anova,
-            extract_raw=StatisticalTester._extract_raw_data_two_way_anova
+            extract_raw=StatisticalTester._extract_raw_data_two_way_anova,
+            test_info=test_info
         )
     
     @staticmethod
@@ -3939,18 +4085,31 @@ class StatisticalTester:
             else:
                 print("DEBUG: Using statsmodels for Mixed ANOVA")
                 # Fallback with statsmodels
+                
+                # Sanitize column names for statsmodels compatibility
+                sanitized_df, column_mapping = StatisticalTester._sanitize_column_names_for_statsmodels(
+                    df, [between_factor, rm_factor, dv]
+                )
+                
+                # Use sanitized column names in formula
+                sanitized_between = column_mapping[between_factor]
+                sanitized_rm = column_mapping[rm_factor]
+                sanitized_dv = column_mapping[dv]
+                
                 import statsmodels.api as sm
                 from statsmodels.formula.api import ols
-                formula = f"{dv} ~ C({between_factor}) + C({rm_factor}) + C({between_factor}):C({rm_factor})"
-                model = ols(formula, data=df).fit()
+                formula = f"{sanitized_dv} ~ C({sanitized_between}) + C({sanitized_rm}) + C({sanitized_between}):C({sanitized_rm})"
+                print(f"DEBUG: Mixed ANOVA formula with sanitized names: {formula}")
+                
+                model = ols(formula, data=sanitized_df).fit()
                 anova = sm.stats.anova_lm(model, typ=2)
 
                 # Effect sizes not available in fallback
-                for factor in [rm_factor, between_factor]:
+                for factor, orig_factor in zip([sanitized_rm, sanitized_between], [rm_factor, between_factor]):
                     row = anova.loc[f"C({factor})"]
                     results["factors"].append({
-                        "factor": factor,
-                        "type": "within" if factor == rm_factor else "between",
+                        "factor": orig_factor,  # Use original factor name in results
+                        "type": "within" if orig_factor == rm_factor else "between",
                         "F": float(row["F"]),
                         "p_value": float(row["PR(>F)"]),
                         "df1": int(row["df"]),
@@ -4281,12 +4440,25 @@ class StatisticalTester:
                     return StatisticalTester._standardize_results(results)
                     
                 factor = within[0]
+                
+                # Sanitize column names for statsmodels compatibility
+                sanitized_df, column_mapping = StatisticalTester._sanitize_column_names_for_statsmodels(
+                    df, [factor, subject, dv]
+                )
+                
+                # Use sanitized column names in formula
+                sanitized_factor = column_mapping[factor]
+                sanitized_subject = column_mapping[subject]
+                sanitized_dv = column_mapping[dv]
+                
                 from statsmodels.formula.api import ols
                 import statsmodels.api as sm
-                formula = f"{dv} ~ C({factor}) + C({subject})"
-                model = ols(formula, data=df).fit()
+                formula = f"{sanitized_dv} ~ C({sanitized_factor}) + C({sanitized_subject})"
+                print(f"DEBUG: RM ANOVA formula with sanitized names: {formula}")
+                
+                model = ols(formula, data=sanitized_df).fit()
                 anova = sm.stats.anova_lm(model, typ=2)
-                row = anova.loc[f"C({factor})"]
+                row = anova.loc[f"C({sanitized_factor})"]
                 results["factors"].append({
                     "factor": factor,
                     "type": "within",
@@ -4361,6 +4533,26 @@ class StatisticalTester:
                 results["df2"]             = fv.get("df2")
 
         return StatisticalTester._standardize_results(results)
+    
+    @staticmethod
+    def _sanitize_column_names_for_statsmodels(df, columns):
+        """
+        Sanitize column names for statsmodels compatibility by removing spaces.
+        Returns sanitized dataframe and mapping of old->new names.
+        """
+        sanitized_df = df.copy()
+        column_mapping = {}
+        
+        for col in columns:
+            if col in df.columns and ' ' in col:
+                sanitized_name = col.replace(' ', '')
+                sanitized_df = sanitized_df.rename(columns={col: sanitized_name})
+                column_mapping[col] = sanitized_name
+                print(f"DEBUG: Column name sanitized: '{col}' -> '{sanitized_name}'")
+            else:
+                column_mapping[col] = col
+                
+        return sanitized_df, column_mapping
     
     @staticmethod
     def _run_two_way_anova(df, dv, between, alpha=0.05):
@@ -4529,8 +4721,20 @@ class StatisticalTester:
                 print("DEBUG: WARNING! Two-Way ANOVA uses statsmodels fallback!")
                 print("DEBUG: Pingouin not installed or import failed.")
 
-                formula = f"`{dv}` ~ C(`{factor_a}`) * C(`{factor_b}`)"
-                model = ols(formula, data=df).fit()
+                # Sanitize column names for statsmodels compatibility
+                sanitized_df, column_mapping = StatisticalTester._sanitize_column_names_for_statsmodels(
+                    df, [factor_a, factor_b, dv]
+                )
+                
+                # Use sanitized column names in formula
+                sanitized_factor_a = column_mapping[factor_a]
+                sanitized_factor_b = column_mapping[factor_b] 
+                sanitized_dv = column_mapping[dv]
+
+                formula = f"`{sanitized_dv}` ~ C(`{sanitized_factor_a}`) * C(`{sanitized_factor_b}`)"
+                print(f"DEBUG: Two-Way ANOVA formula with sanitized names: {formula}")
+                
+                model = ols(formula, data=sanitized_df).fit()
                 aov = sm.stats.anova_lm(model, typ=2)
                 if "Residual" not in aov.index:
                     results["error"] = "Residuals not found in statsmodels ANOVA output."
@@ -4539,7 +4743,8 @@ class StatisticalTester:
 
                 # Main effects
                 for factor in [factor_a, factor_b]:
-                    factor_term = f"C(`{factor}`)"
+                    sanitized_factor = column_mapping[factor]
+                    factor_term = f"C(`{sanitized_factor}`)"
                     if factor_term not in aov.index:
                         results.setdefault("warnings", []).append(f"Factor term '{factor_term}' not found in statsmodels ANOVA output.")
                         continue
@@ -4556,7 +4761,9 @@ class StatisticalTester:
                     })
 
                 # Interaction
-                interaction_term = f"C(`{factor_a}`):C(`{factor_b}`)"
+                sanitized_factor_a = column_mapping[factor_a]
+                sanitized_factor_b = column_mapping[factor_b]
+                interaction_term = f"C(`{sanitized_factor_a}`):C(`{sanitized_factor_b}`)"
                 if interaction_term in aov.index:
                     row = aov.loc[interaction_term]
                     interaction_result = {
@@ -8370,7 +8577,7 @@ class ResultsExporter:
         # Homogeneity of variances (Brown-Forsythe-Test)
         ws.write(row, 0, "Homogeneity of variances (Brown-Forsythe-Test):", fmt["section_header"])
         row += 1
-        var_headers = ["Brown-Forsythe statistic", "p-Value", "Variances equal?", "Interpretation"]
+        var_headers = ["Data Type", "Brown-Forsythe statistic", "p-Value", "Variances equal?", "Interpretation"]
         for i, h in enumerate(var_headers):
             ws.write(row, i, h, fmt["header"])
         row += 1
@@ -8379,30 +8586,55 @@ class ResultsExporter:
         test_info = results.get("test_info", {})
         transformation = results.get("transformation", "None")
         
-        # Use post-transformation data if transformation was applied, otherwise pre-transformation
-        if transformation and transformation != "None" and "post_transformation" in test_info:
-            var_test = test_info["post_transformation"].get("variance", {})
-        else:
-            var_test = test_info.get("pre_transformation", {}).get("variance", {})
+        # Display pre-transformation variance test
+        if "pre_transformation" in test_info and "variance" in test_info["pre_transformation"]:
+            pre_var = test_info["pre_transformation"]["variance"]
+            stat = pre_var.get('statistic', 'N/A')
+            p_val = pre_var.get('p_value', 'N/A')
+            var_equal = pre_var.get('equal_variance', False)
+            var_text = "Yes" if var_equal else "No"
+            interpretation = (
+                "No significant differences in variances"
+                if var_equal else
+                "Significant differences in variances"
+            )
+            values = [
+                "Original Data",
+                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                var_text,
+                interpretation
+            ]
+            for col, val in enumerate(values):
+                cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
+                ws.write(row, col, val, cell_fmt)
+            row += 1
         
-        stat = var_test.get('statistic', 'N/A')
-        p_val = var_test.get('p_value', 'N/A')
-        var_equal = var_test.get('equal_variance', False)
-        var_text = "Yes" if var_equal else "No"
-        interpretation = (
-            "No significant differences in variances"
-            if var_equal else
-            "Significant differences in variances"
-        )
-        values = [
-            f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
-            f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
-            var_text,
-            interpretation
-        ]
-        for col, val in enumerate(values):
-            ws.write(row, col, val, fmt["cell"])
-        row += 2
+        # Display post-transformation variance test if transformation was applied
+        if (transformation and transformation not in ["None", "No further"] and 
+            "post_transformation" in test_info and "variance" in test_info["post_transformation"]):
+            
+            post_var = test_info["post_transformation"]["variance"]
+            stat = post_var.get('statistic', 'N/A')
+            p_val = post_var.get('p_value', 'N/A')
+            var_equal = post_var.get('equal_variance', False)
+            var_text = "Yes" if var_equal else "No"
+            interpretation = (
+                "No significant differences in variances after transformation"
+                if var_equal else
+                "Significant differences in variances even after transformation"
+            )
+            values = [
+                f"After {transformation} Transformation",
+                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                var_text,
+                interpretation
+            ]
+            for col, val in enumerate(values):
+                cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
+                ws.write(row, col, val, cell_fmt)
+            row += 1
     
         # VISUAL EXAMINATION SECTION (for all cases)
         ws.merge_range(f'A{row}:F{row}', "VISUAL EXAMINATION OF ASSUMPTIONS", fmt["section_header"])
@@ -8437,7 +8669,6 @@ class ResultsExporter:
             
             # Create side-by-side layout for both plots
             if plot_paths['normality_before'] and plot_paths['homoscedasticity_before']:
-                # Hilfsformat: echter Zellumbruch (kein Merge nötig)
                 wrap_fmt = workbook.add_format({
                     'text_wrap': True, 
                     'valign': 'top',
@@ -8445,9 +8676,8 @@ class ResultsExporter:
                     'bg_color': '#F0F8FF'
                 })
                 
-                # Konstanten für Spaltenbreiten
                 LEFT_TOTAL = 55 * 6   # A..F (updated for new column width A=55)
-                RIGHT_TOTAL = 28 * 6  # H..M
+                RIGHT_TOTAL = 28 * 7  # G..M (erweitert auf 7 Spalten für mehr Breite)
                 
                 # Single header for both plots (Merge ok für Überschrift)
                 ws.merge_range(f'A{row}:M{row}', "📈📊 VISUAL ASSUMPTION EXAMINATION - Q-Q Plot & Boxplots Side by Side", fmt["section_header_center"])
@@ -8482,20 +8712,16 @@ class ResultsExporter:
                     "💡 REMEMBER: Compare spread, not central values"
                 )
                 
-                # LINKER Block (nur Zelle A{row} nutzen), Breite = Summe A..F
                 ws.write(row, 0, qq_text, wrap_fmt)
                 req_h_left = ResultsExporter.get_fixed_row_height("side_by_side_qq")
                 
-                # RECHTER Block (nur Zelle H{row} nutzen), Breite = Summe H..M
                 ws.write(row, 7, box_text, wrap_fmt)
                 req_h_right = ResultsExporter.get_fixed_row_height("side_by_side_box")
                 
-                # beide Blöcke auf gleiche Höhe bringen
                 ws.set_row(row, max(req_h_left, req_h_right))
                 text_row = row
                 row += 1
                 
-                # Eigene Bildzeile darunter – entkoppelt, flach – und Bilder *nicht* mit Zellen bewegen
                 ws.set_row(row, 60)
                 image_row = row
                 
@@ -8503,8 +8729,8 @@ class ResultsExporter:
                 try:
                     from PIL import Image
                     if os.path.exists(plot_paths['normality_before']):
-                        ws.insert_image(image_row, 0, plot_paths['normality_before'], {
-                            'x_scale': 0.55, 'y_scale': 0.55,
+                        ws.insert_image(image_row, 1, plot_paths['normality_before'], {
+                            'x_scale': 0.7, 'y_scale': 0.7,
                             'object_position': 3, 'x_offset': 2, 'y_offset': 2
                         })
                         print(f"DEBUG: Successfully inserted Q-Q plot at row {image_row} with robust positioning")
@@ -8519,8 +8745,8 @@ class ResultsExporter:
                 try:
                     from PIL import Image
                     if os.path.exists(plot_paths['homoscedasticity_before']):
-                        ws.insert_image(image_row, 7, plot_paths['homoscedasticity_before'], {
-                            'x_scale': 0.55, 'y_scale': 0.55,
+                        ws.insert_image(image_row, 8, plot_paths['homoscedasticity_before'], {
+                            'x_scale': 0.7, 'y_scale': 0.7,
                             'object_position': 3, 'x_offset': 2, 'y_offset': 2
                         })
                         print(f"DEBUG: Successfully inserted Boxplot at row {image_row} with robust positioning")
@@ -8531,7 +8757,6 @@ class ResultsExporter:
                     print(f"DEBUG: Error inserting Boxplot: {e}")
                     ws.write(image_row, 7, f"Boxplot error: {str(e)}", fmt["explanation"])
                 
-                # kompakter Puffer nach den Bildern
                 row = image_row + 4
                 print(f"DEBUG: ROBUST LAYOUT: Advanced to row {row} with decoupled images")
                 
@@ -8874,23 +9099,21 @@ class ResultsExporter:
                         from PIL import Image
                         
                         # Insert transformed Q-Q plot on the left (columns A:F)
-                        with Image.open(plot_paths['normality_after']) as img:
-                            width, height = img.size
-                            scale_factor = max(0.8, min(1.2, 600 / width)) if width > 500 else 0.8
-                            ws.insert_image(row, 0, plot_paths['normality_after'], 
-                                          {'x_scale': scale_factor, 'y_scale': scale_factor})
+                        # Use consistent scaling (0.7)
+                        ws.insert_image(row, 0, plot_paths['normality_after'], 
+                                      {'x_scale': 0.7, 'y_scale': 0.7,
+                                       'object_position': 3, 'x_offset': 2, 'y_offset': 2})
                         
                         # Insert transformed Boxplot on the right (columns H:M)
-                        with Image.open(plot_paths['homoscedasticity_after']) as img:
-                            width, height = img.size
-                            scale_factor = max(0.8, min(1.2, 600 / width)) if width > 500 else 0.8
-                            ws.insert_image(row, 7, plot_paths['homoscedasticity_after'], 
-                                          {'x_scale': scale_factor, 'y_scale': scale_factor})
+                        # Use consistent scaling (0.7)
+                        ws.insert_image(row, 7, plot_paths['homoscedasticity_after'], 
+                                      {'x_scale': 0.7, 'y_scale': 0.7,
+                                       'object_position': 3, 'x_offset': 2, 'y_offset': 2})
                         
-                        # Calculate rows needed for the taller of the two images
+                        # Calculate rows needed - use fixed scale factor of 0.7
                         with Image.open(plot_paths['normality_after']) as img1, Image.open(plot_paths['homoscedasticity_after']) as img2:
                             max_height = max(img1.size[1], img2.size[1])
-                            scale_factor = 0.8
+                            scale_factor = 0.7  # Consistent with all other plots
                             image_rows = int((max_height * scale_factor) / 15) + 2
                             row += max(image_rows, 10)  # Compact layout
                             
@@ -8909,13 +9132,12 @@ class ResultsExporter:
                         row += 1
                         try:
                             from PIL import Image
-                            with Image.open(plot_paths['normality_after']) as img:
-                                width, height = img.size
-                                scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
-                                ws.insert_image(row, 0, plot_paths['normality_after'], 
-                                              {'x_scale': scale_factor, 'y_scale': scale_factor})
-                                image_rows = int((height * scale_factor) / 15) + 2
-                                row += max(image_rows, 8)
+                            # Use consistent scaling (0.7)
+                            ws.insert_image(row, 0, plot_paths['normality_after'], 
+                                          {'x_scale': 0.7, 'y_scale': 0.7,
+                                           'object_position': 3, 'x_offset': 2, 'y_offset': 2})
+                            # Use fixed row calculation based on consistent scale
+                            row += 25  # Fixed spacing
                         except Exception as e:
                             print(f"DEBUG: Error inserting transformed normality plot: {e}")
                             ws.write(row, 0, "Error displaying transformed normality plot", fmt["explanation"])
@@ -8926,13 +9148,12 @@ class ResultsExporter:
                         row += 1
                         try:
                             from PIL import Image
-                            with Image.open(plot_paths['homoscedasticity_after']) as img:
-                                width, height = img.size
-                                scale_factor = max(1.2, min(1.5, 1200 / width)) if width > 800 else 1.2
-                                ws.insert_image(row, 0, plot_paths['homoscedasticity_after'], 
-                                              {'x_scale': scale_factor, 'y_scale': scale_factor})
-                                image_rows = int((height * scale_factor) / 15) + 2
-                                row += max(image_rows, 8)
+                            # Use consistent scaling (0.7)
+                            ws.insert_image(row, 0, plot_paths['homoscedasticity_after'], 
+                                          {'x_scale': 0.7, 'y_scale': 0.7,
+                                           'object_position': 3, 'x_offset': 2, 'y_offset': 2})
+                            # Use fixed row calculation based on consistent scale
+                            row += 25  # Fixed spacing
                         except Exception as e:
                             print(f"DEBUG: Error inserting transformed homoscedasticity plot: {e}")
                             ws.write(row, 0, "Error displaying transformed homoscedasticity plot", fmt["explanation"])
