@@ -37,6 +37,10 @@ a = Analysis(
         'matplotlib.backends.backend_pdf',
         'matplotlib.backends.backend_ps',
         'matplotlib.backends.backend_agg',
+    'matplotlib.backends.backend_qt5agg',
+    'mpl_toolkits',
+    'mpl_toolkits.axes_grid1',
+    'mpl_toolkits.axes_grid1.inset_locator',
         'scikit_posthocs',
         'networkx',
         'pingouin',
@@ -118,7 +122,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=False,  # GUI app
+    console=True,  # Console window enabled for debugging
     icon=icon_file,
 )
 
