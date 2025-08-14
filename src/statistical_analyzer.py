@@ -40,9 +40,12 @@ def get_seaborn():
 # DISABLED: Nonparametric fallbacks are not yet supported
 # from nonparametricanovas import NonParametricFactory, NonParametricRMANOVA
 from stats_functions import (
-    DataImporter, StatisticalTester, DataVisualizer, AnalysisManager, ResultsExporter, 
+    DataImporter, AnalysisManager, 
     UIDialogManager, OutlierDetector, OUTLIER_IMPORTS_AVAILABLE
 )
+from resultsexporter import ResultsExporter
+from datavisualizer import DataVisualizer
+from statisticaltester import StatisticalTester
 # Import the new PlotAestheticsDialog for advanced plot appearance configuration
 try:
     from plot_aesthetics_dialog import PlotAestheticsDialog

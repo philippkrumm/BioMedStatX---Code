@@ -1,6 +1,6 @@
 """
-Plot Aesthetics Dialog mit Tab-Interface und Live-Preview
-Ermöglicht umfassende Anpassung der Plot-Erscheinung
+Plot Aesthetics Dialog with tabbed interface and live preview.
+Enables comprehensive customization of plot appearance.
 """
 from PyQt5.QtWidgets import QDesktopWidget
 import sys
@@ -21,7 +21,7 @@ except ImportError:
     PlotPreviewWidget = None
 
 class ColorButton(QPushButton):
-    """Custom Button für Farbauswahl"""
+    """Custom button for color selection"""
     colorChanged = pyqtSignal(str)
     
     def __init__(self, color="#3357FF", parent=None):
@@ -50,7 +50,7 @@ class ColorButton(QPushButton):
 
 
 class SizeTab(QWidget):
-    """Tab für Größeneinstellungen"""
+    """Tab for size settings"""
     settingsChanged = pyqtSignal()
     
     def __init__(self, config=None):
@@ -103,7 +103,7 @@ class SizeTab(QWidget):
 
 
 class TypographyTab(QWidget):
-    """Tab für Schrifteinstellungen"""
+    """Tab for font settings"""
     settingsChanged = pyqtSignal()
     
     def __init__(self, config=None):
@@ -126,7 +126,7 @@ class TypographyTab(QWidget):
         
         font_family_layout.addWidget(QLabel("Font Family:"), 0, 0)
         self.font_family_combo = QComboBox()
-        # Nur Windows-kompatible Schriftarten
+    # Only Windows-compatible fonts
         font_families = [
             'Arial', 'Times New Roman', 'Calibri',
             'Segoe UI', 'Georgia',
@@ -134,7 +134,7 @@ class TypographyTab(QWidget):
         ]
         self.font_family_combo.addItems(font_families)
         self.font_family_combo.setCurrentText(self.config.get('font_family', 'Arial'))
-        # Verbesserte Signal-Verbindung für sofortige Updates
+    # Improved signal connection for immediate updates
         self.font_family_combo.currentTextChanged.connect(self.on_font_changed)
         font_family_layout.addWidget(self.font_family_combo, 0, 1)
         
@@ -196,8 +196,8 @@ class TypographyTab(QWidget):
         layout.addStretch()
     
     def on_font_changed(self):
-        """Spezielle Behandlung für Schriftarten-Änderungen mit sofortigem Update"""
-        # Force immediate update für Schriftarten
+        """Special handling for font changes with immediate update"""
+        # Force immediate update for fonts
         self.settingsChanged.emit()
     
     def on_title_size_changed(self):
