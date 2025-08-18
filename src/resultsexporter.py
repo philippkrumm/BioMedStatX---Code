@@ -943,7 +943,14 @@ class ResultsExporter:
             and "residuals_normality" in results["test_info"]["pre_transformation"]
         )
         
-        if has_residual_tests:
+        # ALSO check if we have the new normality_tests structure with model_residuals
+        has_new_normality_structure = (
+            "normality_tests" in results 
+            and isinstance(results["normality_tests"], dict)
+            and "model_residuals" in results["normality_tests"]
+        )
+        
+        if has_residual_tests or has_new_normality_structure:
             # NEW: Display residual-based normality tests
             norm_explanation = (
                 "Note: Normality is tested on the residuals of the statistical model."
@@ -966,14 +973,26 @@ class ResultsExporter:
                 ws.write(row, i, h, fmt["header"])
             row += 1
             
-            test_info = results["test_info"]
+            # Get test info from either test_info structure or compatible structure
+            test_info = results.get("test_info", {})
             
             # Pre-transformation residual test
-            if "pre_transformation" in test_info and "residuals_normality" in test_info["pre_transformation"]:
+            if has_residual_tests and "pre_transformation" in test_info and "residuals_normality" in test_info["pre_transformation"]:
                 pre_norm = test_info["pre_transformation"]["residuals_normality"]
                 stat = pre_norm.get('statistic', 'N/A')
                 p_val = pre_norm.get('p_value', 'N/A')
                 is_normal = pre_norm.get('is_normal', False)
+            elif has_new_normality_structure and "model_residuals" in results["normality_tests"]:
+                pre_norm = results["normality_tests"]["model_residuals"]
+                stat = pre_norm.get('statistic', 'N/A')
+                p_val = pre_norm.get('p_value', 'N/A')
+                is_normal = pre_norm.get('is_normal', False)
+            else:
+                stat = p_val = 'N/A'
+                is_normal = False
+                
+            # Write pre-transformation row if we have data
+            if stat != 'N/A' or p_val != 'N/A':
                 normal_text = "Yes" if is_normal else "No"
                 interpretation = (
                     "Model residuals show no significant deviation from normality"
@@ -994,53 +1013,68 @@ class ResultsExporter:
             
             # Post-transformation residual test (if transformation was applied)
             transformation = results.get("transformation", "None")
-            if (transformation and transformation != "None" and 
-                "post_transformation" in test_info and "residuals_normality" in test_info["post_transformation"]):
+            if transformation and transformation != "None":
+                # Try to get post-transformation data
+                if (has_residual_tests and "post_transformation" in test_info and 
+                    "residuals_normality" in test_info["post_transformation"]):
+                    post_norm = test_info["post_transformation"]["residuals_normality"]
+                    stat = post_norm.get('statistic', 'N/A')
+                    p_val = post_norm.get('p_value', 'N/A')
+                    is_normal = post_norm.get('is_normal', False)
+                elif (has_new_normality_structure and "model_residuals_transformed" in results["normality_tests"]):
+                    post_norm = results["normality_tests"]["model_residuals_transformed"]
+                    stat = post_norm.get('statistic', 'N/A')
+                    p_val = post_norm.get('p_value', 'N/A')
+                    is_normal = post_norm.get('is_normal', False)
+                else:
+                    stat = p_val = 'N/A'
+                    is_normal = False
                 
-                post_norm = test_info["post_transformation"]["residuals_normality"]
-                stat = post_norm.get('statistic', 'N/A')
-                p_val = post_norm.get('p_value', 'N/A')
-                is_normal = post_norm.get('is_normal', False)
-                normal_text = "Yes" if is_normal else "No"
-                interpretation = (
-                    "Transformed model residuals show no significant deviation from normality"
-                    if is_normal else
-                    "Transformed model residuals show significant deviation from normality"
-                )
-                values = [
-                    f"After {transformation} Transformation (Model Residuals)",
-                    f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
-                    f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
-                    normal_text,
-                    interpretation
-                ]
-                for col, val in enumerate(values):
-                    cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
-                    ws.write(row, col, val, cell_fmt)
-                row += 1
+                # Write post-transformation row if we have data
+                if stat != 'N/A' or p_val != 'N/A':
+                    normal_text = "Yes" if is_normal else "No"
+                    interpretation = (
+                        "Transformed model residuals show no significant deviation from normality"
+                        if is_normal else
+                        "Transformed model residuals show significant deviation from normality"
+                    )
+                    values = [
+                        f"After {transformation} Transformation (Model Residuals)",
+                        f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                        f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                        normal_text,
+                        interpretation
+                    ]
+                    for col, val in enumerate(values):
+                        cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
+                        ws.write(row, col, val, cell_fmt)
+                    row += 1
                 
         else:
-            # FALLBACK: Display old-style group-based normality tests
-            norm_headers = ["Group", "Shapiro-Wilk statistic", "p-Value", "Normally distributed?", "Interpretation"]
-            for i, h in enumerate(norm_headers):
-                ws.write(row, i, h, fmt["header"])
-            row += 1
+            # FALLBACK: Display old-style group-based normality tests or model residuals
             normality_results = results.get("normality_tests", {})
-        
-            for group, test_result in normality_results.items():
-                if group == "all_data" or group == "transformed_data":
-                    continue  # Skip these special entries
-                stat = test_result.get('statistic', 'N/A')
-                p_val = test_result.get('p_value', 'N/A')
-                is_normal = (isinstance(p_val, (float, int)) and p_val > 0.05)
+            
+            # Check if we have model_residuals structure even without test_info
+            if "model_residuals" in normality_results:
+                # Display as model residuals
+                norm_headers = ["Data Type", "Shapiro-Wilk statistic", "p-Value", "Residuals normally distributed?", "Interpretation"]
+                for i, h in enumerate(norm_headers):
+                    ws.write(row, i, h, fmt["header"])
+                row += 1
+                
+                # Original data (model residuals)
+                model_res = normality_results["model_residuals"]
+                stat = model_res.get('statistic', 'N/A')
+                p_val = model_res.get('p_value', 'N/A')
+                is_normal = model_res.get('is_normal', False)
                 normal_text = "Yes" if is_normal else "No"
                 interpretation = (
-                    "No significant deviation from normality"
+                    "Model residuals show no significant deviation from normality"
                     if is_normal else
-                    "Significant deviation from normality"
+                    "Model residuals show significant deviation from normality"
                 )
                 values = [
-                    str(group),
+                    "Original Data (Model Residuals)",
                     f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
                     f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
                     normal_text,
@@ -1050,6 +1084,61 @@ class ResultsExporter:
                     cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
                     ws.write(row, col, val, cell_fmt)
                 row += 1
+                
+                # Transformed data if available
+                if "model_residuals_transformed" in normality_results:
+                    model_res_trans = normality_results["model_residuals_transformed"]
+                    stat = model_res_trans.get('statistic', 'N/A')
+                    p_val = model_res_trans.get('p_value', 'N/A')
+                    is_normal = model_res_trans.get('is_normal', False)
+                    normal_text = "Yes" if is_normal else "No"
+                    transformation = results.get("transformation", "Unknown")
+                    interpretation = (
+                        "Transformed model residuals show no significant deviation from normality"
+                        if is_normal else
+                        "Transformed model residuals show significant deviation from normality"
+                    )
+                    values = [
+                        f"After {transformation} Transformation (Model Residuals)",
+                        f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                        f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                        normal_text,
+                        interpretation
+                    ]
+                    for col, val in enumerate(values):
+                        cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
+                        ws.write(row, col, val, cell_fmt)
+                    row += 1
+            else:
+                # Original old-style group-based normality tests
+                norm_headers = ["Group", "Shapiro-Wilk statistic", "p-Value", "Normally distributed?", "Interpretation"]
+                for i, h in enumerate(norm_headers):
+                    ws.write(row, i, h, fmt["header"])
+                row += 1
+                
+                for group, test_result in normality_results.items():
+                    if group in ["all_data", "transformed_data", "model_residuals", "model_residuals_transformed"]:
+                        continue  # Skip these special entries
+                    stat = test_result.get('statistic', 'N/A')
+                    p_val = test_result.get('p_value', 'N/A')
+                    is_normal = (isinstance(p_val, (float, int)) and p_val > 0.05)
+                    normal_text = "Yes" if is_normal else "No"
+                    interpretation = (
+                        "No significant deviation from normality"
+                        if is_normal else
+                        "Significant deviation from normality"
+                    )
+                    values = [
+                        str(group),
+                        f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
+                        f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                        normal_text,
+                        interpretation
+                    ]
+                    for col, val in enumerate(values):
+                        cell_fmt = fmt["significant"] if not is_normal else fmt["cell"]
+                        ws.write(row, col, val, cell_fmt)
+                    row += 1
     
         row += 1
 
@@ -1064,21 +1153,29 @@ class ResultsExporter:
             ws.write(row, i, h, fmt["header"])
         row += 1
         
-        # Get variance test data from test_info structure
+        # Get variance test data from test_info structure or fallback to variance_test
         test_info = results.get("test_info", {})
+        variance_test = results.get("variance_test", {})
         transformation = results.get("transformation", "None")
         
-        print(f"DEBUG VARIANCE EXCEL: test_info keys: {list(test_info.keys())}")
-        if "pre_transformation" in test_info:
-            print(f"DEBUG VARIANCE EXCEL: pre_transformation keys: {list(test_info['pre_transformation'].keys())}")
+        # Initialize default values
+        stat = p_val = None
+        var_equal = False
         
         # Display pre-transformation variance test
         if "pre_transformation" in test_info and "variance" in test_info["pre_transformation"]:
-            print("DEBUG VARIANCE EXCEL: Writing pre-transformation variance test")
             pre_var = test_info["pre_transformation"]["variance"]
-            stat = pre_var.get('statistic', 'N/A')
-            p_val = pre_var.get('p_value', 'N/A')
+            stat = pre_var.get('statistic')
+            p_val = pre_var.get('p_value')
             var_equal = pre_var.get('equal_variance', False)
+        elif variance_test and "statistic" in variance_test:
+            # Fallback to variance_test structure
+            stat = variance_test.get('statistic')
+            p_val = variance_test.get('p_value') 
+            var_equal = variance_test.get('equal_variance', False)
+            
+        # Write pre-transformation row if we have valid data
+        if stat is not None and p_val is not None:
             var_text = "Yes" if var_equal else "No"
             interpretation = (
                 "No significant differences in variances"
@@ -1087,8 +1184,8 @@ class ResultsExporter:
             )
             values = [
                 "Original Data",
-                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
-                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
+                f"{stat:.4f}" if isinstance(stat, (float, int)) else str(stat),
+                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else str(p_val),
                 var_text,
                 interpretation
             ]
@@ -1096,37 +1193,44 @@ class ResultsExporter:
                 cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
                 ws.write(row, col, val, cell_fmt)
             row += 1
-        else:
-            print("DEBUG VARIANCE EXCEL: No pre-transformation variance test found")
         
         # Display post-transformation variance test if transformation was applied
-        if (transformation and transformation not in ["None", "No further"] and 
-            "post_transformation" in test_info and "variance" in test_info["post_transformation"]):
+        if transformation and transformation not in ["None", "No further"]:
+            post_stat = post_p_val = None
+            post_var_equal = False
             
-            print("DEBUG VARIANCE EXCEL: Writing post-transformation variance test")
-            post_var = test_info["post_transformation"]["variance"]
-            stat = post_var.get('statistic', 'N/A')
-            p_val = post_var.get('p_value', 'N/A')
-            var_equal = post_var.get('equal_variance', False)
-            var_text = "Yes" if var_equal else "No"
-            interpretation = (
-                "No significant differences in variances after transformation"
-                if var_equal else
-                "Significant differences in variances even after transformation"
-            )
-            values = [
-                f"After {transformation} Transformation",
-                f"{stat:.4f}" if isinstance(stat, (float, int)) else stat,
-                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else p_val,
-                var_text,
-                interpretation
-            ]
-            for col, val in enumerate(values):
-                cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
-                ws.write(row, col, val, cell_fmt)
-            row += 1
-        else:
-            print("DEBUG VARIANCE EXCEL: No post-transformation variance test found or no transformation applied")
+            # Try test_info structure first
+            if ("post_transformation" in test_info and "variance" in test_info["post_transformation"]):
+                post_var = test_info["post_transformation"]["variance"]
+                post_stat = post_var.get('statistic')
+                post_p_val = post_var.get('p_value')
+                post_var_equal = post_var.get('equal_variance', False)
+            elif "transformed" in variance_test:
+                # Fallback to variance_test.transformed structure
+                post_var = variance_test["transformed"]
+                post_stat = post_var.get('statistic')
+                post_p_val = post_var.get('p_value')
+                post_var_equal = post_var.get('equal_variance', False)
+                
+            # Write post-transformation row if we have valid data
+            if post_stat is not None and post_p_val is not None:
+                var_text = "Yes" if post_var_equal else "No"
+                interpretation = (
+                    "No significant differences in variances after transformation"
+                    if post_var_equal else
+                    "Significant differences in variances even after transformation"
+                )
+                values = [
+                    f"After {transformation} Transformation",
+                    f"{post_stat:.4f}" if isinstance(post_stat, (float, int)) else str(post_stat),
+                    f"{post_p_val:.4f}" if isinstance(post_p_val, (float, int)) else str(post_p_val),
+                    var_text,
+                    interpretation
+                ]
+                for col, val in enumerate(values):
+                    cell_fmt = fmt["significant"] if not post_var_equal else fmt["cell"]
+                    ws.write(row, col, val, cell_fmt)
+                row += 1
     
         # VISUAL EXAMINATION SECTION (for all cases)
         ws.merge_range(f'A{row}:F{row}', "VISUAL EXAMINATION OF ASSUMPTIONS", fmt["section_header"])
