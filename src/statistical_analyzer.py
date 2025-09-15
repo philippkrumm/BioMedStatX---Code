@@ -249,6 +249,8 @@ class ColumnSelectionDialog(QDialog):
             scroll_layout.addWidget(check)
         
         scroll_area.setWidget(scroll_content)
+        # Limit height for many columns
+        scroll_area.setMaximumHeight(300)
         layout.addWidget(scroll_area)
         
         # Buttons
@@ -552,6 +554,8 @@ class AdvancedTestDialog(QDialog):
                     self.withinList.item(i).setSelected(True)
                     
         self.withinList.setSelectionMode(QAbstractItemView.MultiSelection)
+        # Limit height for many columns
+        self.withinList.setMaximumHeight(120)
         columnsLayout.addRow("Within factors:", self.withinList)
         
         # Between factors (multiple possible)
@@ -564,6 +568,8 @@ class AdvancedTestDialog(QDialog):
                     self.betweenList.item(i).setSelected(True)
                     
         self.betweenList.setSelectionMode(QAbstractItemView.MultiSelection)
+        # Limit height for many columns
+        self.betweenList.setMaximumHeight(120)
         columnsLayout.addRow("Between factors:", self.betweenList)
         
         self.columnsGroup.setLayout(columnsLayout)
@@ -699,6 +705,8 @@ class PlotConfigDialog(QDialog):
         order_layout = QVBoxLayout(order_group)
         self.order_list = QListWidget()
         self.order_list.setDragDropMode(QListWidget.InternalMove)
+        # Limit height for many groups
+        self.order_list.setMaximumHeight(150)
         for group in groups:
             self.order_list.addItem(str(group))
         order_layout.addWidget(self.order_list)
@@ -1948,6 +1956,8 @@ class StatisticalAnalyzerApp(QMainWindow):
         # Enable multi-selection for comparing groups
         self.groups_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.groups_list.setToolTip("Select groups to preview (Ctrl+Click for multiple selection)")
+        # Limit height for many groups
+        self.groups_list.setMaximumHeight(200)
         # Connection for automatic preview updates when group selection changes
         self.groups_list.itemSelectionChanged.connect(self.update_preview_on_selection_change)
         groups_layout.addWidget(self.groups_list)
@@ -1972,6 +1982,8 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         self.plots_list = QListWidget()
         self.plots_list.setObjectName("lstPlotConfigurations")
+        # Limit height for many plot configurations
+        self.plots_list.setMaximumHeight(200)
         self.plots_list.itemDoubleClicked.connect(self.edit_plot_config)
         plots_layout.addWidget(self.plots_list)
         

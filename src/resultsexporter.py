@@ -1153,35 +1153,22 @@ class ResultsExporter:
             ws.write(row, i, h, fmt["header"])
         row += 1
         
-        # Get variance test data from test_info structure or fallback to variance_test
-        test_info = results.get("test_info", {})
+        # Get variance test data - SIMPLIFIED APPROACH 
         variance_test = results.get("variance_test", {})
         transformation = results.get("transformation", "None")
         
-        # Initialize default values
-        stat = p_val = None
-        var_equal = False
-        
-        # Display pre-transformation variance test
-        if "pre_transformation" in test_info and "variance" in test_info["pre_transformation"]:
-            pre_var = test_info["pre_transformation"]["variance"]
-            stat = pre_var.get('statistic')
-            p_val = pre_var.get('p_value')
-            var_equal = pre_var.get('equal_variance', False)
-        elif variance_test and "statistic" in variance_test:
-            # Fallback to variance_test structure
-            stat = variance_test.get('statistic')
-            p_val = variance_test.get('p_value') 
+        # Write original variance test data
+        if variance_test and "statistic" in variance_test:
+            stat = variance_test.get('statistic', 'N/A')
+            p_val = variance_test.get('p_value', 'N/A')
             var_equal = variance_test.get('equal_variance', False)
-            
-        # Write pre-transformation row if we have valid data
-        if stat is not None and p_val is not None:
             var_text = "Yes" if var_equal else "No"
             interpretation = (
                 "No significant differences in variances"
                 if var_equal else
                 "Significant differences in variances"
             )
+            
             values = [
                 "Original Data",
                 f"{stat:.4f}" if isinstance(stat, (float, int)) else str(stat),
@@ -1189,48 +1176,43 @@ class ResultsExporter:
                 var_text,
                 interpretation
             ]
+            
+            for col, val in enumerate(values):
+                cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
+                ws.write(row, col, val, cell_fmt)
+            row += 1
+        else:
+            # Fallback if no variance data
+            ws.write(row, 0, "No variance test data available", fmt["cell"])
+            row += 1
+            
+        # Write transformed variance test data if transformation was applied
+        if transformation and transformation not in ["None", "No further"] and "transformed" in variance_test:
+            trans_var = variance_test["transformed"]
+            stat = trans_var.get('statistic', 'N/A')
+            p_val = trans_var.get('p_value', 'N/A')
+            var_equal = trans_var.get('equal_variance', False)
+            var_text = "Yes" if var_equal else "No"
+            interpretation = (
+                "No significant differences in variances after transformation"
+                if var_equal else
+                "Significant differences in variances even after transformation"
+            )
+            
+            values = [
+                f"After {transformation} Transformation",
+                f"{stat:.4f}" if isinstance(stat, (float, int)) else str(stat),
+                f"{p_val:.4f}" if isinstance(p_val, (float, int)) else str(p_val),
+                var_text,
+                interpretation
+            ]
+            
             for col, val in enumerate(values):
                 cell_fmt = fmt["significant"] if not var_equal else fmt["cell"]
                 ws.write(row, col, val, cell_fmt)
             row += 1
         
-        # Display post-transformation variance test if transformation was applied
-        if transformation and transformation not in ["None", "No further"]:
-            post_stat = post_p_val = None
-            post_var_equal = False
-            
-            # Try test_info structure first
-            if ("post_transformation" in test_info and "variance" in test_info["post_transformation"]):
-                post_var = test_info["post_transformation"]["variance"]
-                post_stat = post_var.get('statistic')
-                post_p_val = post_var.get('p_value')
-                post_var_equal = post_var.get('equal_variance', False)
-            elif "transformed" in variance_test:
-                # Fallback to variance_test.transformed structure
-                post_var = variance_test["transformed"]
-                post_stat = post_var.get('statistic')
-                post_p_val = post_var.get('p_value')
-                post_var_equal = post_var.get('equal_variance', False)
-                
-            # Write post-transformation row if we have valid data
-            if post_stat is not None and post_p_val is not None:
-                var_text = "Yes" if post_var_equal else "No"
-                interpretation = (
-                    "No significant differences in variances after transformation"
-                    if post_var_equal else
-                    "Significant differences in variances even after transformation"
-                )
-                values = [
-                    f"After {transformation} Transformation",
-                    f"{post_stat:.4f}" if isinstance(post_stat, (float, int)) else str(post_stat),
-                    f"{post_p_val:.4f}" if isinstance(post_p_val, (float, int)) else str(post_p_val),
-                    var_text,
-                    interpretation
-                ]
-                for col, val in enumerate(values):
-                    cell_fmt = fmt["significant"] if not post_var_equal else fmt["cell"]
-                    ws.write(row, col, val, cell_fmt)
-                row += 1
+        row += 1  # Add space after variance test section
     
         # VISUAL EXAMINATION SECTION (for all cases)
         ws.merge_range(f'A{row}:F{row}', "VISUAL EXAMINATION OF ASSUMPTIONS", fmt["section_header"])

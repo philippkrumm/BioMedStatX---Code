@@ -1786,7 +1786,7 @@ class UIDialogManager:
         Dialog to select custom group pairs for paired t-tests.
         Returns a list of (group1, group2) tuples.
         """
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QCheckBox, QDialogButtonBox, QWidget, QHBoxLayout
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QLabel, QCheckBox, QDialogButtonBox, QWidget, QHBoxLayout, QScrollArea
 
         class PairSelectionDialog(QDialog):
             def __init__(self, groups, parent=None):
@@ -1796,13 +1796,40 @@ class UIDialogManager:
                 layout = QVBoxLayout(self)
                 label = QLabel("Select the group pairs to compare (paired t-test):")
                 layout.addWidget(label)
+                
+                # Create scroll area for many group pairs
+                scroll = QScrollArea(self)
+                scroll.setWidgetResizable(True)
+                scroll_content = QWidget()
+                scroll_layout = QVBoxLayout(scroll_content)
+                
                 self.checkboxes = []
                 for i, g1 in enumerate(groups):
                     for g2 in groups[i+1:]:
                         pair_str = f"{g1} vs {g2}"
                         cb = QCheckBox(pair_str)
-                        layout.addWidget(cb)
+                        scroll_layout.addWidget(cb)
                         self.checkboxes.append((cb, (g1, g2)))
+                
+                scroll_content.setLayout(scroll_layout)
+                scroll.setWidget(scroll_content)
+                
+                # Limit maximum height to prevent dialog from becoming too large
+                # Calculate dynamic height: max 350px or 50% of screen height, whichever is smaller
+                from PyQt5.QtWidgets import QApplication
+                if QApplication.instance():
+                    screen = QApplication.instance().primaryScreen()
+                    if screen:
+                        screen_height = screen.geometry().height()
+                        max_height = min(350, int(screen_height * 0.5))
+                        scroll.setMaximumHeight(max_height)
+                    else:
+                        scroll.setMaximumHeight(350)  # Fallback
+                else:
+                    scroll.setMaximumHeight(350)  # Fallback
+                    
+                layout.addWidget(scroll)
+                
                 buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
                 buttons.accepted.connect(self.accept)
                 buttons.rejected.connect(self.reject)
@@ -2450,10 +2477,10 @@ class AnalysisManager:
                 # Get variance test from new structure
                 pre_variance = test_info.get("pre_transformation", {}).get("variance")
                 if pre_variance and pre_variance.get("p_value") is not None:
-                    analysis_log += f"Levene test (variance homogeneity): p = {pre_variance['p_value']:.4f} - "
+                    analysis_log += f"Brown-Forsythe test (variance homogeneity): p = {pre_variance['p_value']:.4f} - "
                     analysis_log += "Variances homogeneous\n" if pre_variance.get('equal_variance', False) else "Variances heterogeneous\n"
                 else:
-                    analysis_log += "Levene test: Not performed (insufficient data)\n"
+                    analysis_log += "Brown-Forsythe test: Not performed (insufficient data)\n"
 
                 # Log transformation
                 if test_info.get("transformation"):
@@ -2472,10 +2499,10 @@ class AnalysisManager:
                     # Get post-transformation variance
                     post_variance = test_info.get("post_transformation", {}).get("variance")
                     if post_variance and post_variance.get("p_value") is not None:
-                        analysis_log += f"Levene test (transformed data variance homogeneity): p = {post_variance['p_value']:.4f} - "
+                        analysis_log += f"Brown-Forsythe test (transformed data variance homogeneity): p = {post_variance['p_value']:.4f} - "
                         analysis_log += "Transformed data variances homogeneous\n" if post_variance.get('equal_variance', False) else "Transformed data variances heterogeneous\n"
                     else:
-                        analysis_log += "Levene test (transformed data): Not performed (insufficient data)\n"
+                        analysis_log += "Brown-Forsythe test (transformed data): Not performed (insufficient data)\n"
                 else:
                     analysis_log += "\nTransformation: No transformation performed.\n"
 
