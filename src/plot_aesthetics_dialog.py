@@ -274,7 +274,7 @@ class ColorsTab(QWidget):
             'Greys', 'Paired', 'tab10'
         ]
         self.palette_combo.addItems(professional_palettes)
-        self.palette_combo.setCurrentText(self.config.get('seaborn_palette', 'deep'))
+        self.palette_combo.setCurrentText(self.config.get('seaborn_palette', 'Greys'))
         self.palette_combo.currentTextChanged.connect(self.on_seaborn_settings_changed)
         seaborn_layout.addWidget(self.palette_combo, 1, 1)
         
