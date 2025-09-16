@@ -28,16 +28,6 @@ def get_statistical_tester():
     """Get StatisticalTester class lazily"""
     from statisticaltester import StatisticalTester
     return StatisticalTester
-
-def get_data_visualizer():
-    """Get DataVisualizer class lazily"""
-    from datavisualizer import DataVisualizer
-    return DataVisualizer
-
-def get_statistical_tester():
-    """Get StatisticalTester class lazily"""
-    from statisticaltester import StatisticalTester
-    return StatisticalTester
 # DISABLED: Nonparametric fallbacks are not yet supported
 # from nonparametricanovas import NonParametricFactory, NonParametricRMANOVA
 
@@ -4462,3 +4452,4 @@ class OutlierDetector:
 # Note: Classes are imported lazily to avoid circular imports.
 # Use get_data_visualizer(), get_statistical_tester(), get_results_exporter() functions instead.
 ResultsExporter = get_results_exporter()
+DataVisualizer = get_data_visualizer()
