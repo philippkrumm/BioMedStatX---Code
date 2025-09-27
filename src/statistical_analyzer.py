@@ -46,6 +46,13 @@ from stats_functions import (
 from resultsexporter import ResultsExporter
 from datavisualizer import DataVisualizer
 from statisticaltester import StatisticalTester
+# Import updater for auto-update functionality
+try:
+    from updater import AutoUpdater
+    UPDATE_AVAILABLE = True
+except ImportError:
+    UPDATE_AVAILABLE = False
+    print("Warning: Updater module not available")
 # Import the new PlotAestheticsDialog for advanced plot appearance configuration
 try:
     from plot_aesthetics_dialog import PlotAestheticsDialog
@@ -1689,7 +1696,7 @@ class StatisticalAnalyzerApp(QMainWindow):
             (screen.width() - width) // 2,
             (screen.height() - height) // 2
         )
-        self.setWindowTitle("BioMedStatX")
+        self.setWindowTitle("BioMedStatX v1.0.1 - Comprehensive Statistical Analysis Tool")
         self.setGeometry(100, 50, 1600, 1300)
         
         # Set window icon
@@ -1724,6 +1731,9 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         # Add menu bar
         self.create_menu()
+        
+        # Initialize updater
+        self.setup_updater()
                
     def create_menu(self):
         """Creates the menu bar with help options"""
@@ -1739,6 +1749,13 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         # Help menu
         help_menu = menubar.addMenu('&Help')
+
+        # Getting Started should be first
+        getting_started_action = QAction('Getting Started', self)
+        getting_started_action.triggered.connect(self.show_getting_started_help)
+        help_menu.addAction(getting_started_action)
+        
+        help_menu.addSeparator()
 
         dependent_help_action = QAction('Dependent Samples', self)
         dependent_help_action.triggered.connect(self.show_dependent_samples_help)
@@ -1759,6 +1776,13 @@ class StatisticalAnalyzerApp(QMainWindow):
         advanced_action.triggered.connect(self.show_advanced_tests_help)
         help_menu.addAction(advanced_action)
 
+        help_menu.addSeparator()
+        
+        # Check for updates
+        update_action = QAction('Check for Updates...', self)  
+        update_action.triggered.connect(self.check_for_updates)
+        help_menu.addAction(update_action)
+        
         # About should be last
         about_action = QAction('About', self)
         about_action.triggered.connect(self.show_about)
@@ -3602,6 +3626,106 @@ class StatisticalAnalyzerApp(QMainWindow):
         
         dlg.exec_()
     
+    def show_getting_started_help(self):
+        """Shows a comprehensive getting started guide for first-time users."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QTextBrowser, QPushButton
+        
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Getting Started with BioMedStatX")
+        dlg.resize(1000, 800)
+        layout = QVBoxLayout(dlg)
+        
+        browser = QTextBrowser()
+        browser.setHtml("""
+            <h2>Getting Started with BioMedStatX</h2>
+            <p><i>A step-by-step guide for first-time users</i></p>
+            
+            <h3>Step 1: Prepare Your Data</h3>
+            <p>BioMedStatX works with <b>Excel files</b> (.xlsx or .xls). Your data should be organized in columns, in a long format:</p>
+            <ul>
+                <li><b>Group column:</b> Contains group names (e.g., "Control", "Treatment A", "Treatment B")</li>
+                <li><b>Value column:</b> Contains the measurements you want to analyze</li>
+                <li><b>Subject column (optional):</b> For dependent/paired data - unique identifiers for each subject</li>
+            <p>Take a look into the template excel file, if you need an idea of how to structure your data for the different types of analysis</p>
+            </ul>
+
+            
+            <h3>Step 2: Upload Your Excel File</h3>
+            <p>1. Click the <b>"Browse"</b> button in the main window</p>
+            <p>2. Select your Excel file from your computer</p>
+            <p>3. The file path will appear in the text field</p>
+            
+            <h3>Step 3: Select Your Worksheet</h3>
+            <p>If your Excel file has multiple sheets:</p>
+            <ul>
+                <li>Use the <b>Sheet dropdown</b> to choose the correct worksheet</li>
+                <li>The program will automatically detect available sheets</li>
+            </ul>
+            
+            <h3>Step 4: Configure Your Columns</h3>
+            <p>Tell the program which columns contain your data:</p>
+            <ul>
+                <li><b>Group Column:</b> Select the column with your group names</li>
+                <li><b>Value Column:</b> Select the column with your measurements</li>
+            </ul>
+            
+            <h3>Step 5: Choose Your Analysis Type</h3>
+            
+            <h4>A) Basic Statistical Tests (Automatic Selection)</h4>
+            <p>Click <b>"Run Statistical Analysis"</b> for automatic test selection:</p>
+            <ul>
+                <li><b>2 groups:</b> t-test or Mann-Whitney U test</li>
+                <li><b>3+ groups:</b> One-way ANOVA or Kruskal-Wallis test</li>
+                <li>The program automatically chooses parametric vs. non-parametric based on your data</li>
+            </ul>
+            
+            <h4>B) Advanced ANOVA Tests</h4>
+            <p>For more complex designs, use <b>Analysis → Run Advanced Tests</b>:</p>
+            <ul>
+                <li><b>Repeated Measures ANOVA:</b> Same subjects measured multiple times</li>
+                <li><b>Two-Way ANOVA:</b> Two independent factors (e.g., treatment × gender)</li>
+                <li><b>Mixed ANOVA:</b> Combination of between- and within-subject factors</li>
+            </ul>
+            
+            <h3>Step 6: Additional Analysis Options</h3>
+            
+            <h4>Outlier Detection</h4>
+            <p>After uploading your data, you can:</p>
+            <ul>
+                <li>Use <b>Analysis → Detect Outliers</b> to identify unusual data points</li>
+                <li>Choose from multiple outlier detection methods</li>
+                <li>Decide whether to keep or remove outliers</li>
+            </ul>
+            
+            <h4>Multi-Dataset Analysis</h4>
+            <p>To compare multiple related datasets:</p>
+            <ul>
+                <li>Click <b>Multiple columns...</b> and click <b>Separate analysis per dataset with shared excel file</b> all the groups you want to analyse
+                <li>Click <b>"Multi-Dataset Analysis"</b> in the main window</li>
+                <li>Each dataset gets its own analysis and plot</li>
+                <li>Results are combined in a single Excel report</li>
+            </ul>
+            
+            <h3>Step 7: Customize Your Results</h3>
+            
+            <h4>Plot Customization</h4>
+            <ul>
+                <li>Choose between <b>Bar, Box, Violin, or Strip plots</b></li>
+                <li>Customize colors, fonts, and error bars</li>
+                <li>Add statistical significance annotations</li>
+            </ul>
+            
+            <p><b>Need more help?</b> Check the other help sections for specific topics!</p>
+        """)
+        
+        layout.addWidget(browser)
+        
+        btn = QPushButton("OK")
+        btn.clicked.connect(dlg.accept)
+        layout.addWidget(btn)
+        
+        dlg.exec_()
+    
     def closeEvent(self, event):
         """Cleanup temporäre Daten beim Schließen des Programms"""
         print("DEBUG: Cleaning up temporary plot appearance settings...")
@@ -4027,6 +4151,30 @@ class StatisticalAnalyzerApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"Error opening outlier detection dialog: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def setup_updater(self):
+        """Initialize the auto-updater"""
+        if UPDATE_AVAILABLE:
+            self.updater = AutoUpdater(self)
+            # Auto-check for updates 5 seconds after startup
+            from PyQt5.QtCore import QTimer
+            startup_timer = QTimer()
+            startup_timer.singleShot(5000, lambda: self.updater.check_for_updates(silent=True))
+        else:
+            self.updater = None
+    
+    def check_for_updates(self):
+        """Manual update check triggered from menu"""
+        if UPDATE_AVAILABLE and self.updater:
+            self.updater.check_for_updates(silent=False)
+        else:
+            QMessageBox.information(
+                self,
+                "Updates Not Available",
+                "Update functionality is not available in this build.\n\n"
+                "Please check the GitHub repository manually for updates:\n"
+                "https://github.com/philippkrumm/BioMedStatX---Code"
+            )
 
 if __name__ == "__main__":
     try:

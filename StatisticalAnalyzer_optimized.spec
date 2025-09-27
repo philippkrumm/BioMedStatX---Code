@@ -93,10 +93,6 @@ a = Analysis(
         'PyQt6',
         'wxPython',
         
-        # Compiler/Development tools (nur die wirklich sicheren)
-        'wheel',
-        'pip',
-        
         # Database engines (nur die externen, nicht sqlite3)
         'pymongo',
         'redis',

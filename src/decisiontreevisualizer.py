@@ -248,7 +248,7 @@ class DecisionTreeVisualizer:
             nodes_info = {
                 # Common path
                 'A': {"label": "Start", "pos": (0, 14)},
-                'B': {"label": f"Check Assumptions\nShapiro-Wilk: {is_normal}\nLevene: {has_equal_variance}", "pos": (0, 12.5)},
+                'B': {"label": f"Check Assumptions\nShapiro-Wilk: {is_normal}\nBrown-Forsythe: {has_equal_variance}", "pos": (0, 12.5)},
                 'C': {"label": f"Assumptions{': ' + ('Met' if is_normal and has_equal_variance else 'Not Met')}", "pos": (0, 11)},
 
                 # Transformation branch point
