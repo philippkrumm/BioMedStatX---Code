@@ -15,7 +15,7 @@ import logging
 
 # Current version - update this with each release
 CURRENT_VERSION = "1.0.1" 
-GITHUB_REPO = "philippkrumm/BioMedStatX---Code"
+GITHUB_REPO = "philippkrumm/BioMedStatX"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 class UpdateChecker(QThread):

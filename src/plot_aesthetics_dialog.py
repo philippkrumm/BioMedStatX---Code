@@ -126,15 +126,44 @@ class TypographyTab(QWidget):
         
         font_family_layout.addWidget(QLabel("Font Family:"), 0, 0)
         self.font_family_combo = QComboBox()
-    # Only Windows-compatible fonts
-        font_families = [
-            'Arial', 'Times New Roman', 'Calibri',
-            'Segoe UI', 'Georgia',
-            'Trebuchet MS', 'Impact'
-        ]
+        
+        # Use FontManager to get available system fonts
+        try:
+            # Import the FontManager from datavisualizer
+            import sys
+            import os
+            # Add src directory to path if not already there
+            src_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src')
+            if src_path not in sys.path:
+                sys.path.insert(0, src_path)
+            
+            from datavisualizer import FontManager
+            font_families = FontManager.get_available_fonts()
+            print(f"Loaded {len(font_families)} system fonts for UI")
+        except Exception as e:
+            print(f"Warning: Could not load system fonts: {e}")
+            # Fallback to common fonts
+            font_families = [
+                'Arial', 'Times New Roman', 'Calibri',
+                'Segoe UI', 'Georgia', 'Helvetica',
+                'Trebuchet MS', 'Impact', 'DejaVu Sans'
+            ]
+        
         self.font_family_combo.addItems(font_families)
-        self.font_family_combo.setCurrentText(self.config.get('font_family', 'Arial'))
-    # Improved signal connection for immediate updates
+        current_font = self.config.get('font_family', 'Arial')
+        
+        # Validate and set current font
+        try:
+            if current_font in font_families:
+                self.font_family_combo.setCurrentText(current_font)
+            else:
+                # Find closest match or use first available
+                self.font_family_combo.setCurrentText(font_families[0])
+                print(f"Font '{current_font}' not available, using '{font_families[0]}'")
+        except:
+            self.font_family_combo.setCurrentText(font_families[0])
+            
+        # Improved signal connection for immediate updates
         self.font_family_combo.currentTextChanged.connect(self.on_font_changed)
         font_family_layout.addWidget(self.font_family_combo, 0, 1)
         
@@ -872,13 +901,60 @@ class SignificanceTab(QWidget):
         letters_layout.addWidget(self.letters_offset_spin, 2, 1)
         
         layout.addWidget(letters_group)
+        
+        # Significance Brackets Group
+        brackets_group = QGroupBox("Significance Brackets")
+        brackets_layout = QGridLayout(brackets_group)
+        
+        # Bracket Line Width
+        brackets_layout.addWidget(QLabel("Line Width:"), 0, 0)
+        self.bracket_linewidth_spin = QDoubleSpinBox()
+        self.bracket_linewidth_spin.setRange(0.5, 5.0)
+        self.bracket_linewidth_spin.setSingleStep(0.1)
+        self.bracket_linewidth_spin.setValue(self.config.get('bracket_line_width', 2.0))
+        self.bracket_linewidth_spin.valueChanged.connect(self.settingsChanged)
+        brackets_layout.addWidget(self.bracket_linewidth_spin, 0, 1)
+        
+        # Bracket Font Size
+        brackets_layout.addWidget(QLabel("Font Size:"), 1, 0)
+        self.bracket_fontsize_spin = QSpinBox()
+        self.bracket_fontsize_spin.setRange(8, 30)
+        self.bracket_fontsize_spin.setValue(self.config.get('bracket_font_size', 16))
+        self.bracket_fontsize_spin.valueChanged.connect(self.settingsChanged)
+        brackets_layout.addWidget(self.bracket_fontsize_spin, 1, 1)
+        
+        # Bracket Vertical Length
+        brackets_layout.addWidget(QLabel("Vertical Length:"), 2, 0)
+        self.bracket_vertical_spin = QDoubleSpinBox()
+        self.bracket_vertical_spin.setRange(0.1, 1.0)
+        self.bracket_vertical_spin.setSingleStep(0.05)
+        self.bracket_vertical_spin.setValue(self.config.get('bracket_vertical_fraction', 0.25))
+        self.bracket_vertical_spin.valueChanged.connect(self.settingsChanged)
+        brackets_layout.addWidget(self.bracket_vertical_spin, 2, 1)
+        
+        # Bracket Spacing
+        brackets_layout.addWidget(QLabel("Spacing:"), 3, 0)
+        self.bracket_spacing_spin = QDoubleSpinBox()
+        self.bracket_spacing_spin.setRange(0.05, 0.5)
+        self.bracket_spacing_spin.setSingleStep(0.01)
+        self.bracket_spacing_spin.setValue(self.config.get('bracket_spacing', 0.1))
+        self.bracket_spacing_spin.valueChanged.connect(self.settingsChanged)
+        brackets_layout.addWidget(self.bracket_spacing_spin, 3, 1)
+        
+        layout.addWidget(brackets_group)
         layout.addStretch()
     
     def get_settings(self):
         return {
             'show_significance_letters': self.show_letters_check.isChecked(),
             'significance_font_size': self.letters_fontsize_spin.value(),
-            'significance_height_offset': self.letters_offset_spin.value()
+            'significance_height_offset': self.letters_offset_spin.value(),
+            # Bracket settings
+            'bracket_line_width': self.bracket_linewidth_spin.value(),
+            'bracket_font_size': self.bracket_fontsize_spin.value(),
+            'bracket_vertical_fraction': self.bracket_vertical_spin.value(),
+            'bracket_spacing': self.bracket_spacing_spin.value(),
+            'bracket_color': '#000000'  # Always black
         }
 
 
@@ -1003,38 +1079,20 @@ class PlotAestheticsDialog(QDialog):
     def update_preview_immediately(self):
         """Sofortige Preview-Aktualisierung für Schriftarten-Änderungen"""
         if hasattr(self, 'preview') and self.preview:
-            # Erzwinge sofortiges Update ohne Verzögerung
             config = self.get_config()
             
-            # WICHTIG: Explizit matplotlib font setzen ohne _rebuild
+            # Font-Management ist jetzt im StylingManager integriert
+            # Einfach das normale Update verwenden - der neue Manager handhabt Fonts optimal
+            self.preview.update_plot(config)
+            
+            # Force immediate redraw for font changes
             try:
-                import matplotlib.pyplot as plt
-                
-                # Setze Font sofort in matplotlib
-                if 'font_family' in config:
-                    plt.rcParams['font.family'] = config['font_family']
-                    # Erzwinge Update durch rcParams reset
-                    plt.rcdefaults()
-                    plt.rcParams['font.family'] = config['font_family']
-                    
-                # Warte kurz damit Font verarbeitet wird
-                from PyQt5.QtCore import QTimer
-                def delayed_update():
-                    self.preview.update_plot(config)
-                    # Forciere Neuzeichnung
-                    if hasattr(self.preview, 'draw'):
-                        self.preview.draw()
-                    if hasattr(self.preview, 'canvas'):
-                        self.preview.canvas.draw_idle()
-                        self.preview.canvas.flush_events()
-                        
-                # Verzögere Update um 100ms für Font-Verarbeitung
-                QTimer.singleShot(100, delayed_update)
-                
+                if hasattr(self.preview, 'draw'):
+                    self.preview.draw()
+                if hasattr(self.preview, 'flush_events'):
+                    self.preview.flush_events()
             except Exception as e:
-                print(f"Error in font update: {e}")
-                # Fallback ohne Verzögerung
-                self.preview.update_plot(config)
+                print(f"Warning: Could not force redraw: {e}")
     
     def update_raincloud_tab_visibility(self):
         """Zeigt/versteckt den Raincloud Tab basierend auf dem Plot Type"""

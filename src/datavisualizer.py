@@ -9,73 +9,576 @@ import os
 from scipy.stats import ttest_ind, mannwhitneyu
 from matplotlib.ticker import ScalarFormatter, FuncFormatter
 from resultsexporter import ResultsExporter
-from stats_functions import get_output_path
+def _lazy_get_output_path():
+    try:
+        from stats_functions import get_output_path
+        return get_output_path
+    except Exception:
+        # Fallback: simple path join if stats_functions not ready
+        def _fallback(name, ext):
+            base = f"{name}.{ext}"
+            return os.path.join(os.getcwd(), base)
+        return _fallback
+
+
+class FontManager:
+    """Zentrale Font-Verwaltung für konsistente Schriftart-Anwendung"""
+    
+    @staticmethod
+    def get_available_fonts():
+        """Gibt Liste verfügbarer System-Fonts zurück"""
+        import matplotlib.font_manager as fm
+        fonts = [f.name for f in fm.fontManager.ttflist]
+        # Häufige Fonts priorisieren
+        common_fonts = ['Arial', 'Times New Roman', 'Helvetica', 'Calibri', 'DejaVu Sans']
+        available_common = [f for f in common_fonts if f in fonts]
+        return list(dict.fromkeys(available_common + sorted(set(fonts))))
+    
+    @staticmethod
+    def validate_font(font_family):
+        """Prüft ob Font verfügbar ist, gibt Fallback zurück falls nicht"""
+        import matplotlib.font_manager as fm
+        
+        if not font_family:
+            return 'Arial'  # Standard-Fallback
+            
+        # Prüfe ob Font verfügbar
+        available_fonts = FontManager.get_available_fonts()
+        if font_family in available_fonts:
+            return font_family
+            
+        # Fallback-Strategie
+        fallbacks = ['Arial', 'DejaVu Sans', 'Helvetica', 'sans-serif']
+        for fallback in fallbacks:
+            if fallback in available_fonts:
+                print(f"Font '{font_family}' not found, using '{fallback}' instead")
+                return fallback
+                
+        return 'sans-serif'  # Letzter Fallback
+    
+    @staticmethod
+    def apply_font_safely(ax, fig, font_family, update_rcparams=False):
+        """
+        Sichere Font-Anwendung ohne Cache-Konflikte
+        
+        Parameters:
+        -----------
+        ax : matplotlib.axes.Axes
+            Die Axes auf die der Font angewendet werden soll
+        fig : matplotlib.figure.Figure
+            Die Figure (optional, für globale Updates)
+        font_family : str
+            Der gewünschte Font
+        update_rcparams : bool
+            Ob rcParams global aktualisiert werden sollen (nur für finale Plots)
+        """
+        validated_font = FontManager.validate_font(font_family)
+        
+        try:
+            # 1. Tick-Labels direkt setzen
+            for text in ax.get_xticklabels() + ax.get_yticklabels():
+                text.set_fontfamily(validated_font)
+            
+            # 2. Title und Labels direkt setzen falls vorhanden
+            title = ax.get_title()
+            if title:
+                ax.title.set_fontfamily(validated_font)
+                
+            xlabel = ax.get_xlabel()
+            if xlabel:
+                ax.xaxis.label.set_fontfamily(validated_font)
+                
+            ylabel = ax.get_ylabel()
+            if ylabel:
+                ax.yaxis.label.set_fontfamily(validated_font)
+            
+            # 3. Legend falls vorhanden
+            legend = ax.get_legend()
+            if legend:
+                for text in legend.get_texts():
+                    text.set_fontfamily(validated_font)
+                if legend.get_title():
+                    legend.get_title().set_fontfamily(validated_font)
+            
+            # 4. rcParams nur für finale Plots aktualisieren (nicht Preview)
+            if update_rcparams:
+                plt.rcParams['font.family'] = validated_font
+                
+        except Exception as e:
+            print(f"Warning: Could not apply font '{font_family}': {e}")
+            # Fallback: Versuche Standard-Font
+            try:
+                plt.rcParams['font.family'] = 'Arial'
+            except:
+                pass
+
+
+class StylingManager:
+    """Zentrale Styling-Verwaltung für harmonische Seaborn-Manual-Integration"""
+    
+    @staticmethod
+    def apply_unified_styling(ax, config, is_preview=False):
+        """
+        Einheitliche Styling-Anwendung mit klaren Prioritäten
+        
+        Reihenfolge:
+        1. Seaborn Base-Styling (falls aktiviert)
+        2. Manuelle Overrides
+        3. Plot-spezifische Anpassungen
+        
+        Parameters:
+        -----------
+        ax : matplotlib.axes.Axes
+            Die zu stylende Axes
+        config : dict
+            Styling-Konfiguration
+        is_preview : bool
+            Ob es sich um Preview oder finalen Plot handelt
+        """
+        
+        # 1. SEABORN BASE-STYLING (falls aktiviert)
+        if config.get('use_seaborn_styling', True):
+            StylingManager._apply_seaborn_base(config)
+        else:
+            # Seaborn komplett deaktivieren
+            plt.style.use('default')
+        
+        # 2. MANUELLE OVERRIDES (haben immer Priorität)
+        StylingManager._apply_manual_overrides(ax, config)
+        
+        # 3. FONT-MANAGEMENT
+        font_family = config.get('font_family', 'Arial')
+        FontManager.apply_font_safely(ax, ax.figure, font_family, 
+                                    update_rcparams=not is_preview)
+        
+        # 4. FINALE ANPASSUNGEN
+        StylingManager._apply_final_styling(ax, config)
+    
+    @staticmethod
+    def _apply_seaborn_base(config):
+        """Wendet Seaborn Base-Styling an"""
+        try:
+            # Context setzen
+            context = config.get('seaborn_context', 'notebook')
+            if context and context != 'none':
+                sns.set_context(context)
+            
+            # Palette setzen (aber nicht forcieren - manuelle Farben haben Vorrang)
+            palette = config.get('seaborn_palette', 'deep')
+            if palette and palette != 'none':
+                sns.set_palette(palette)
+                
+        except Exception as e:
+            print(f"Warning: Seaborn styling failed: {e}")
+    
+    @staticmethod
+    def _apply_manual_overrides(ax, config):
+        """Wendet manuelle Style-Overrides an (haben Priorität über Seaborn)"""
+        
+        # Grid-Einstellungen
+        grid_style = config.get('grid_style', 'none')
+        if grid_style and grid_style != 'none':
+            grid_alpha = config.get('grid_alpha', 0.3)
+            axis_thickness = config.get('axis_thickness', 0.7)
+            
+            if config.get('minor_ticks', False):
+                ax.grid(True, which='both', alpha=grid_alpha, 
+                       linestyle='-', linewidth=axis_thickness * 0.5)
+            else:
+                ax.grid(True, which='major', alpha=grid_alpha, 
+                       linestyle='-', linewidth=axis_thickness * 0.5)
+        else:
+            ax.grid(False)
+        
+        # Spine-Einstellungen
+        despine = config.get('despine', True)
+        axis_thickness = config.get('axis_thickness', 0.7)
+        
+        if despine:
+            # Seaborn despine verwenden falls verfügbar, sonst manuell
+            try:
+                sns.despine(ax=ax)
+            except:
+                ax.spines['top'].set_visible(False)
+                ax.spines['right'].set_visible(False)
+        else:
+            # Alle Spines sichtbar machen
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(axis_thickness)
+        
+        # Tick-Parameter
+        ax.tick_params(axis='both', which='major', width=axis_thickness)
+        if config.get('minor_ticks', False):
+            ax.tick_params(axis='both', which='minor', width=axis_thickness * 0.7)
+    
+    @staticmethod
+    def _apply_final_styling(ax, config):
+        """Finale Styling-Anpassungen die immer angewendet werden"""
+        
+        # Font-Größen setzen (haben Priorität über Seaborn)
+        if 'fontsize_ticks' in config:
+            ax.tick_params(axis='both', which='major', 
+                          labelsize=config['fontsize_ticks'])
+        
+        # Minor Ticks aktivieren falls gewünscht
+        if config.get('minor_ticks', False):
+            plot_type = config.get('plot_type', 'Bar')
+            # Für Bar, Box, Violin: y ist numerisch, x ist kategorisch
+            # Für Raincloud: x ist numerisch, y ist kategorisch
+            if plot_type == 'Raincloud':
+                StylingManager._set_minor_ticks(ax, x_minor=True, y_minor=False)
+            else:
+                StylingManager._set_minor_ticks(ax, x_minor=False, y_minor=True)
+    
+    @staticmethod
+    def _set_minor_ticks(ax, x_minor=False, y_minor=False):
+        """Setzt Minor Ticks nur auf numerischen Achsen"""
+        from matplotlib.ticker import AutoMinorLocator
+        
+        try:
+            if x_minor:
+                ax.xaxis.set_minor_locator(AutoMinorLocator())
+            if y_minor:
+                ax.yaxis.set_minor_locator(AutoMinorLocator())
+        except Exception as e:
+            print(f"Warning: Could not set minor ticks: {e}")
+
 
 class DataVisualizer:
     @staticmethod
-    def _add_pairwise_comparisons(ax, groups, compare, pairwise_results, df=None, line_height=0.1, font_size=14):
+    def _get_plot_max_height_robust(ax, df=None):
         """
-    Draws significance brackets for pairwise comparisons.
+        Robuste Höhenerkennung für alle Plot-Typen
+        """
+        import numpy as np
+        
+        y_max_candidates = []
+        
+        # 1. DataFrame-basierte Höhenerkennung (zuverlässigste Methode)
+        if df is not None and 'Value' in df:
+            y_max_candidates.append(df['Value'].max())
+            # Auch Error Bars berücksichtigen falls vorhanden
+            if 'Error' in df:
+                y_max_candidates.append(df['Value'].max() + df['Error'].max())
+        
+        # 2. Patches-basierte Erkennung (Bar Plots)
+        try:
+            patches = getattr(ax, 'patches', [])
+            if patches:
+                heights = [p.get_height() for p in patches if hasattr(p, 'get_height') and p.get_height() > 0]
+                if heights:
+                    y_max_candidates.append(max(heights))
+        except Exception:
+            pass
+        
+        # 3. Collections-basierte Erkennung (Violin, Box Plots)
+        try:
+            collections = ax.collections
+            for collection in collections:
+                if hasattr(collection, 'get_paths'):
+                    paths = collection.get_paths()
+                    for path in paths:
+                        vertices = path.vertices
+                        if len(vertices) > 0:
+                            y_max_candidates.append(np.max(vertices[:, 1]))
+        except Exception:
+            pass
+        
+        # 4. Lines-basierte Erkennung (Box Plot whiskers, etc.)
+        try:
+            lines = ax.lines
+            for line in lines:
+                ydata = line.get_ydata()
+                if len(ydata) > 0:
+                    y_max_candidates.append(np.max(ydata))
+        except Exception:
+            pass
+        
+        # 5. Axis limits als Fallback
+        try:
+            ylims = ax.get_ylim()
+            if ylims[1] > 0:
+                y_max_candidates.append(ylims[1])
+        except Exception:
+            pass
+        
+        # Bestes Maximum wählen
+        if y_max_candidates:
+            return max(y_max_candidates)
+        else:
+            return 1.0  # Absoluter Fallback
+
+    @staticmethod
+    def _add_pairwise_comparisons(ax, groups, compare, pairwise_results, config=None, df=None):
+        """
+    Verbesserte significance brackets mit konfigurierbaren Parametern.
     ax: matplotlib axes
     groups: List of group names (in plot order)
     compare: Order of the groups (usually same as groups)
     pairwise_results: List of dicts with 'group1', 'group2', 'p_value', optionally 'significant'
+    config: Configuration dict with bracket parameters
     df: DataFrame with plot data (optional)
-    line_height: Spacing between brackets
-    font_size: Font size for p-values
         """
         import matplotlib.pyplot as plt
         import numpy as np
-        # Settings for publication-ready bars
-        LINEWIDTH = 2
-        FONT_SIZE = 16
-        SHORT_VERT = 0.25  # Vertical ends are now significantly shorter (as fraction of step)
+        
+        # Konfigurierbare Parameter mit Fallbacks
+        if config is None:
+            config = {}
+        
+        line_width = config.get('bracket_line_width', 2.0)
+        font_size = config.get('bracket_font_size', 16)
+        vertical_fraction = config.get('bracket_vertical_fraction', 0.25)
+        bracket_color = '#000000'  # Always black, ignore config
+        line_height = config.get('bracket_spacing', 0.1)
 
         group_pos = {g: i for i, g in enumerate(compare)}
-        # Find the current maximum on the y-axis
-        if df is not None and 'Value' in df:
-            y_max = df['Value'].max()
-        else:
-            y_max = None
-            try:
-                y_max = max([p.get_height() for p in getattr(ax, 'patches', []) if hasattr(p, 'get_height')])
-            except Exception:
-                y_max = 1.0
-        if y_max is None or y_max == 0:
-            y_max = 1.0
-        # Start-Offset für die Balken
+        
+        # Robuste Höhenerkennung
+        y_max = DataVisualizer._get_plot_max_height_robust(ax, df)
+        # Kollisionserkennung und optimale Bracket-Positionierung
+        brackets = DataVisualizer._calculate_bracket_positions(
+            ax, groups, compare, pairwise_results, y_max, line_height
+        )
+        
+        # Brackets zeichnen
+        for bracket in brackets:
+            DataVisualizer._draw_single_bracket(
+                ax, bracket, line_width, font_size, bracket_color, vertical_fraction
+            )
+
+    @staticmethod
+    def _get_group_extents(ax, n_groups):
+        """Ermittelt für jede Gruppe die linke und rechte x-Grenze basierend auf vorhandenen Artists.
+        Fallback: nutze Standardbreite ±0.4 um das Zentrum.
+        Gibt Dict {index(1-based): (left, right)} zurück."""
+        extents = {}
+        try:
+            import math
+            for p in getattr(ax, 'patches', []):
+                if not hasattr(p, 'get_x'):
+                    continue
+                w = getattr(p, 'get_width', lambda: 0)() or 0
+                if w <= 0:
+                    continue
+                left = p.get_x()
+                center = left + w/2.0
+                idx = int(round(center))
+                # Nur Kandidaten die nahe an ganzzahligen Positionen liegen
+                if abs(center - idx) < 0.15 and 1 <= idx <= n_groups:
+                    if idx not in extents:
+                        extents[idx] = [left, left + w]
+                    else:
+                        extents[idx][0] = min(extents[idx][0], left)
+                        extents[idx][1] = max(extents[idx][1], left + w)
+            # Prüfe ob wir alle Gruppen haben
+            if len(extents) == n_groups:
+                margin = 0.02
+                return {i: (extents[i][0]-margin, extents[i][1]+margin) for i in extents}
+        except Exception:
+            pass
+        # Fallback
+        return {i: (i-0.4, i+0.4) for i in range(1, n_groups+1)}
+
+    @staticmethod
+    def _detect_plot_type(ax):
+        """Detektiert den Plot-Typ basierend auf vorhandenen Artists"""
+        # Prüfe zuerst auf Bar Plots (Rectangle patches mit get_height)
+        patches = getattr(ax, 'patches', [])
+        for patch in patches:
+            if hasattr(patch, 'get_height') and hasattr(patch, 'get_width'):
+                height = patch.get_height()
+                width = patch.get_width()
+                if height > 0 and width > 0:  # Echte Bar mit Höhe und Breite
+                    return 'bar'
+        
+        # Prüfe auf Violin Plots (PolyCollection in ax.collections)
+        # Violin plots haben typischerweise komplexe Pfade
+        collections = getattr(ax, 'collections', [])
+        for collection in collections:
+            if hasattr(collection, 'get_paths'):
+                paths = collection.get_paths()
+                if len(paths) > 0:
+                    # Violin plots haben normalerweise mehrere komplexe Pfade
+                    for path in paths:
+                        if hasattr(path, 'vertices') and len(path.vertices) > 10:
+                            return 'violin'
+        
+        # Default: Box plot (oder unbekannt -> verwende 1-basiert)
+        return 'box'
+
+    @staticmethod
+    def _calculate_bracket_positions(ax, groups, compare, pairwise_results, y_max, line_height):
+        """
+        Berechnet optimale Positionen für Brackets mit Kollisionserkennung
+        """
+        import numpy as np
+
+        group_pos = {g: i for i, g in enumerate(compare)}
+        n_groups = len(compare)
+        group_extents = DataVisualizer._get_group_extents(ax, n_groups)
+        brackets = []
+        
+        # Plot-Type Detection für korrekte Positionierung
+        plot_type = DataVisualizer._detect_plot_type(ax)
+        
+        # Base height für ersten Bracket
         base_height = y_max * 1.05
         step = y_max * line_height
-        current_height = base_height
+        
+        # Sortiere Vergleiche nach Abstand (kürzere zuerst)
+        comparisons = []
         for comp in pairwise_results:
             g1 = comp.get('group1')
             g2 = comp.get('group2')
-            p = comp.get('p_value')
-            if g1 not in group_pos or g2 not in group_pos:
-                continue
-            x1 = group_pos[g1]
-            x2 = group_pos[g2]
-            # Vertical ends are now significantly shorter
-            vert = step * SHORT_VERT
-            # Left vertical line
-            ax.plot([x1, x1], [current_height, current_height+vert], color='#222', linewidth=LINEWIDTH)
-            # Right vertical line
-            ax.plot([x2, x2], [current_height, current_height+vert], color='#222', linewidth=LINEWIDTH)
-            # Horizontal line at top
-            ax.plot([x1, x2], [current_height+vert, current_height+vert], color='#222', linewidth=LINEWIDTH)
-            # p-value or asterisks
-            if p is not None:
-                if p < 0.001:
-                    text = '***'
-                elif p < 0.01:
-                    text = '**'
-                elif p < 0.05:
-                    text = '*'
+            if g1 in group_pos and g2 in group_pos:
+                pos1, pos2 = group_pos[g1], group_pos[g2]
+                
+                # Plot-type-spezifische Positionierung
+                if pos1 > pos2:
+                    pos1, pos2 = pos2, pos1  # Stelle sicher, dass pos1 < pos2
+                
+                # Position-Offset abhängig vom Plot-Typ
+                if plot_type == 'violin':
+                    # Violin plots verwenden 0-basierte Positionen (0, 1, 2...)
+                    matplotlib_pos1 = pos1  # 0-based für Violin
+                    matplotlib_pos2 = pos2  # 0-based für Violin
                 else:
-                    text = 'n.s.'
-                # Place asterisks directly above the horizontal line
-                ax.text((x1+x2)/2, current_height+vert, text, ha='center', va='bottom', fontsize=FONT_SIZE, color='#222', fontweight='bold', fontname='Arial')
-            current_height += step * 1.2
+                    # Box/Bar plots verwenden 1-basierte Positionen (1, 2, 3...)
+                    matplotlib_pos1 = pos1 + 1  # 1-based für Box/Bar
+                    matplotlib_pos2 = pos2 + 1  # 1-based für Box/Bar
+                
+                # Neue Spezifikation: Bracket liegt zwischen den Gruppen –
+                # vertikale Linien NICHT auf den Zentren, sondern leicht innen:
+                # x1 = center_left + delta, x2 = center_right - delta (delta konstant 0.02)
+                delta = 0.02
+                x1 = matplotlib_pos1 + delta
+                x2 = matplotlib_pos2 - delta
+                # Sicherheits-Guard falls Gruppen extrem nah (sollte bei kategorialer Distanz=1 nicht passieren)
+                if x2 <= x1:
+                    mid = (matplotlib_pos1 + matplotlib_pos2)/2.0
+                    x1 = mid - 0.01
+                    x2 = mid + 0.01
+                
+                distance = abs(pos2 - pos1)
+                comparisons.append({
+                    'comp': comp,
+                    'x1': x1, 'x2': x2,
+                    'distance': distance,
+                    'pos1': matplotlib_pos1, 'pos2': matplotlib_pos2  # Korrigierte Positionen für Kollisionserkennung
+                })
+        
+        # Sortiere nach Distanz (kürzere Brackets zuerst)
+        comparisons.sort(key=lambda x: x['distance'])
+        
+        # Weise Höhen zu mit Kollisionserkennung
+        used_positions = []  # Speichere sowohl Position als auch Höhe
+        for comp_data in comparisons:
+            comp = comp_data['comp']
+            x1, x2 = comp_data['x1'], comp_data['x2']
+            pos1, pos2 = comp_data['pos1'], comp_data['pos2']
+            
+            # Finde niedrigste verfügbare Höhe
+            current_height = base_height
+            height_level = 0
+            
+            while DataVisualizer._brackets_collide_improved(pos1, pos2, current_height, used_positions):
+                height_level += 1
+                current_height = base_height + step * height_level * 1.2
+            
+            # Bracket-Info speichern
+            bracket = {
+                'x1': x1, 'x2': x2,
+                'height': current_height,
+                'p_value': comp.get('p_value'),
+                'comp': comp
+            }
+            brackets.append(bracket)
+            used_positions.append((pos1, pos2, current_height))
+        
+        return brackets
+
+    @staticmethod
+    def _brackets_collide(x1, x2, height, used_heights):
+        """
+        Prüft ob ein Bracket mit bestehenden kollidiert (Legacy-Version)
+        """
+        for used_x1, used_x2, used_height in used_heights:
+            # Gleiche Höhe und überlappende x-Bereiche?
+            if abs(height - used_height) < 0.01:  # Gleiche Höhe (mit Toleranz)
+                # Prüfe Überlappung der x-Bereiche
+                if not (x2 < used_x1 or x1 > used_x2):  # Überlappung
+                    return True
+        return False
+    
+    @staticmethod
+    def _brackets_collide_improved(pos1, pos2, height, used_positions):
+        """
+        Verbesserte Kollisionserkennung basierend auf Gruppenpositionen
+        """
+        for used_pos1, used_pos2, used_height in used_positions:
+            # Gleiche Höhe?
+            if abs(height - used_height) < 0.01:  # Gleiche Höhe (mit Toleranz)
+                # Prüfe Überlappung der Gruppenpositionen
+                # Brackets überlappen wenn sie gemeinsame Gruppen haben
+                if not (pos2 < used_pos1 or pos1 > used_pos2):  # Überlappung
+                    return True
+        return False
+
+    @staticmethod
+    def _draw_single_bracket(ax, bracket, line_width, font_size, bracket_color, vertical_fraction):
+        """
+        Zeichnet einen einzelnen Bracket
+        """
+        x1, x2 = bracket['x1'], bracket['x2']
+        height = bracket['height']
+        p_value = bracket['p_value']
+        
+        # Vertikale Länge berechnen
+        y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+        vert = y_range * 0.02 * vertical_fraction  # Angepasste Berechnung
+        
+        # Linien zeichnen
+        # Linke vertikale Linie
+        ax.plot([x1, x1], [height, height + vert], 
+                color=bracket_color, linewidth=line_width)
+        # Rechte vertikale Linie  
+        ax.plot([x2, x2], [height, height + vert], 
+                color=bracket_color, linewidth=line_width)
+        # Horizontale Linie
+        ax.plot([x1, x2], [height + vert, height + vert], 
+                color=bracket_color, linewidth=line_width)
+        
+        # Text (Sternchen oder p-Wert)
+        if p_value is not None:
+            if p_value < 0.001:
+                text = '***'
+            elif p_value < 0.01:
+                text = '**'
+            elif p_value < 0.05:
+                text = '*'
+            else:
+                text = 'n.s.'
+            
+            # Text über der horizontalen Linie
+            ax.text((x1 + x2) / 2, height + vert, text, 
+                   ha='center', va='bottom', fontsize=font_size, 
+                   color=bracket_color, fontweight='bold', fontname='Arial')
+
+    @staticmethod  
+    def _add_pairwise_comparisons_legacy(ax, groups, compare, pairwise_results, df=None, line_height=0.1, font_size=14):
+        """
+        Legacy wrapper für Backward-Kompatibilität
+        """
+        config = {
+            'bracket_line_width': 2.0,
+            'bracket_font_size': font_size,
+            'bracket_vertical_fraction': 0.25,
+            'bracket_spacing': line_height,
+            'bracket_color': '#000000'  # Always black
+        }
+        DataVisualizer.add_significance_brackets_advanced(ax, groups, compare, pairwise_results, config, df)
     """Advanced data visualization class with extensive customization options"""
     
     # Default colors for plots
@@ -108,27 +611,19 @@ class DataVisualizer:
 
     @staticmethod
     def _apply_seaborn_settings(seaborn_context=None, seaborn_palette=None, use_seaborn_styling=True):
-        """Apply Seaborn style context and palette settings"""
+        """Apply Seaborn style context and palette settings (Legacy method - use StylingManager for new code)"""
         if not use_seaborn_styling:
             return
             
-        try:
-            import seaborn as sns
-            
-            # Apply style context if specified
-            if seaborn_context:
-                sns.set_context(seaborn_context)
-            
-            # Set default style for better aesthetics
-            sns.set_style("whitegrid")
-            
-            # Apply palette if specified
-            if seaborn_palette:
-                sns.set_palette(seaborn_palette)
-                
-        except ImportError:
-            # Seaborn not available, skip styling
-            pass
+        # Erstelle temporäre Config für StylingManager
+        temp_config = {
+            'seaborn_context': seaborn_context,
+            'seaborn_palette': seaborn_palette,
+            'use_seaborn_styling': use_seaborn_styling
+        }
+        
+        # Verwende neuen StylingManager für konsistente Anwendung
+        StylingManager._apply_seaborn_base(temp_config)
 
     @staticmethod
     def plot_bar(groups, samples, 
@@ -327,9 +822,17 @@ class DataVisualizer:
                 error_type, pairwise_results=pairwise_results
             )
         if show_bars and pairwise_results:
+            # Konfiguration für Brackets zusammenstellen
+            bracket_config = {
+                'bracket_line_width': 2.0,
+                'bracket_font_size': comparison_font_size,
+                'bracket_vertical_fraction': 0.25,
+                'bracket_spacing': comparison_line_height,
+                'bracket_color': '#222222'
+            }
             DataVisualizer._add_pairwise_comparisons(
-                ax, groups, compare if compare else groups, pairwise_results, df,
-                comparison_line_height, comparison_font_size
+                ax, groups, compare if compare else groups, pairwise_results, 
+                bracket_config, df
             )
         
         # Add legend
@@ -1289,6 +1792,7 @@ class DataVisualizer:
         # Store original directory
         original_dir = os.getcwd()
         
+        get_output_path = _lazy_get_output_path()
         for fmt in formats:
             if fmt == 'pdf':
                 pdf_path = get_output_path(file_name, "pdf")
@@ -1981,6 +2485,9 @@ class DataVisualizer:
             'show_significance_letters': config.get('show_significance_letters', True),
             'significance_height_offset': config.get('significance_height_offset', 0.05),
             'significance_font_size': config.get('significance_font_size', 12),
+            # Bracket-spezifische Parameter für die Preview
+            'comparison_font_size': config.get('bracket_font_size', 16),
+            'comparison_line_height': config.get('bracket_spacing', 0.1),
             'x_label': config.get('x_label', ''),
             'y_label': config.get('y_label', ''),
             'title': config.get('title', ''),
@@ -2055,67 +2562,45 @@ class DataVisualizer:
         else:
             raise ValueError(f"Unbekannter plot_type: {plot_type}")
         
-        # 4. Zusätzliche Achsen-Formatierungen
+        # 4. Bracket-Konfiguration für Preview anwenden (falls Daten vorhanden)
+        if hasattr(ax, '_bracket_config_preview'):
+            # Spezielle Preview-Konfiguration mit UI-Parametern
+            bracket_config = {
+                'bracket_line_width': config.get('bracket_line_width', 2.0),
+                'bracket_font_size': config.get('bracket_font_size', 16),
+                'bracket_vertical_fraction': config.get('bracket_vertical_fraction', 0.25),
+                'bracket_spacing': config.get('bracket_spacing', 0.1),
+                'bracket_color': config.get('bracket_color', '#222222')
+            }
+            # Setze Konfiguration für spätere Nutzung
+            ax._bracket_config_current = bracket_config
         
-        # Font Family setzen (matplotlib rcParams)
-        font_family = config.get('font_family', 'Arial')
-        import matplotlib.pyplot as plt
-        plt.rcParams['font.family'] = font_family
+        # 5. UNIFIED STYLING mit neuen Managern
         
-        # Title - only set fontsize if explicitly provided in config
+        # Bestimme ob es sich um Preview handelt
+        is_preview = config.get('_is_preview', False)
+        
+        # Anwenden des einheitlichen Stylings
+        StylingManager.apply_unified_styling(ax, config, is_preview=is_preview)
+        
+        # Labels und Titel setzen (nach Styling für korrekte Font-Anwendung)
         if config.get('show_title', True) and config.get('title'):
             title_kwargs = {}
             if 'fontsize_title' in config:
                 title_kwargs['fontsize'] = config['fontsize_title']
             ax.set_title(config.get('title', ''), **title_kwargs)
         
-        # Axis labels - only set fontsize if explicitly provided in config
         if config.get('x_label'):
             xlabel_kwargs = {}
             if 'fontsize_axis' in config:
                 xlabel_kwargs['fontsize'] = config['fontsize_axis']
             ax.set_xlabel(config.get('x_label', ''), **xlabel_kwargs)
+            
         if config.get('y_label'):
             ylabel_kwargs = {}
             if 'fontsize_axis' in config:
                 ylabel_kwargs['fontsize'] = config['fontsize_axis']
             ax.set_ylabel(config.get('y_label', ''), **ylabel_kwargs)
         
-        # Tick label font sizes - only set if explicitly provided in config
-        if 'fontsize_ticks' in config:
-            ax.tick_params(axis='both', which='major', labelsize=config['fontsize_ticks'])
-        
-        # Axis thickness
-        axis_thickness = config.get('axis_thickness', 0.7)
-        for spine in ax.spines.values():
-            spine.set_linewidth(axis_thickness)
-        ax.tick_params(axis='both', which='major', width=axis_thickness)
-        ax.tick_params(axis='both', which='minor', width=axis_thickness * 0.7)
-        
-        # Minor Ticks - only on numerical axes
-        if config.get('minor_ticks', False):
-            plot_type = config.get('plot_type', 'Bar')
-            # For Bar, Box, Violin: y is numeric, x is categorical
-            # For Raincloud: x is numeric, y is categorical
-            if plot_type == 'Raincloud':
-                DataVisualizer.set_minor_ticks(ax, x_minor=True, y_minor=False)
-            else:
-                DataVisualizer.set_minor_ticks(ax, x_minor=False, y_minor=True)
-        
         # Control ticks for many groups to prevent matplotlib errors
-        DataVisualizer._control_ticks_for_many_groups(ax, groups, config.get('plot_type', 'Bar'))
-        
-        # Grid-Einstellungen
-        if grid_style and grid_style != 'none':
-            grid_alpha = config.get('grid_alpha', 0.3)
-            if config.get('minor_ticks', False):
-                ax.grid(True, which='both', alpha=grid_alpha, linestyle='-', linewidth=axis_thickness * 0.5)
-            else:
-                ax.grid(True, which='major', alpha=grid_alpha, linestyle='-', linewidth=axis_thickness * 0.5)
-        else:
-            ax.grid(False)
-            
-        # Spine-Einstellungen (Remove Spines)
-        if despine:
-            import seaborn as sns
-            sns.despine(ax=ax)   
+        DataVisualizer._control_ticks_for_many_groups(ax, groups, config.get('plot_type', 'Bar'))   

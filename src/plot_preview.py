@@ -190,28 +190,10 @@ class PlotPreviewWidget(FigureCanvasQTAgg):
             # Clear and redraw
             self.ax.clear()
             
-            # Force matplotlib to refresh font cache if font_family was changed
-            if 'font_family' in config:
-                import matplotlib.pyplot as plt
-                
-                # IMPORTANT: Set font immediately and explicitly without _rebuild
-                font_family = config['font_family']
-                plt.rcParams['font.family'] = font_family
-                
-                # Force update by rcParams reset
-                try:
-                    plt.rcdefaults()
-                    plt.rcParams['font.family'] = font_family
-                except Exception as e:
-                    print(f"Font cache update error: {e}")
-                
-                # Also set explicitly for this figure
-                try:
-                    self.fig.suptitle('', fontfamily=font_family)  # Dummy title to force font load
-                except:
-                    pass
+            # Markiere als Preview für optimiertes Styling
+            config['_is_preview'] = True
             
-            # Use the central dispatcher method
+            # Use the central dispatcher method (Font-Management ist jetzt integriert)
             DataVisualizer.plot_from_config(self.ax, self.groups, self.samples, config)
             
             # Force immediate redraw

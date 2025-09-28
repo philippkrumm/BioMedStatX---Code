@@ -3700,7 +3700,7 @@ class StatisticalAnalyzerApp(QMainWindow):
             <h4>Multi-Dataset Analysis</h4>
             <p>To compare multiple related datasets:</p>
             <ul>
-                <li>Click <b>Multiple columns...</b> and click <b>Separate analysis per dataset with shared excel file</b> all the groups you want to analyse
+                <li>Click <b>Multiple columns...</b> and click <b>Separate analysis per dataset with shared excel file</b> and all the groups you want to analyse
                 <li>Click <b>"Multi-Dataset Analysis"</b> in the main window</li>
                 <li>Each dataset gets its own analysis and plot</li>
                 <li>Results are combined in a single Excel report</li>
