@@ -973,8 +973,24 @@ class PlotAestheticsDialog(QDialog):
         self.setWindowTitle("Plot Appearance Settings")
         self.setModal(True)
         screen = QDesktopWidget().screenGeometry()
-        width = int(screen.width() * 0.72)
-        height = int(screen.height() * 0.72)
+        
+        # Adaptive sizing for different display types and resolutions
+        screen_width = screen.width()
+        screen_height = screen.height()
+        
+        # High-resolution displays (Retina, 4K, etc.) - like MacBook Air 2880x1864
+        if screen_width >= 2560:  # High-res displays
+            width = min(1400, int(screen_width * 0.50))   # 50% of screen, max 1400px
+            height = min(550, int(screen_height * 0.30))  # 30% of screen, max 550px (much shorter!)
+        # Medium resolution displays
+        elif screen_width >= 1920:  # Full HD and similar
+            width = min(1200, int(screen_width * 0.60))   # 60% of screen, max 1200px
+            height = min(500, int(screen_height * 0.45))  # 45% of screen, max 500px
+        # Standard/smaller displays
+        else:  # < 1920px width
+            width = min(1000, int(screen_width * 0.65))   # 65% of screen, max 1000px
+            height = min(450, int(screen_height * 0.50))  # 50% of screen, max 450px
+            
         self.resize(width, height)
         self.move(
             (screen.width() - width) // 2,
@@ -1054,13 +1070,13 @@ class PlotAestheticsDialog(QDialog):
             preview_layout.addWidget(self.preview)
             
             splitter.addWidget(preview_frame)
-            splitter.setSizes([600, 600])  # Mehr Platz für Tabs, weniger für Preview
+            splitter.setSizes([500, 800])  # Weniger Platz für Tabs, mehr für Preview
         else:
             # Fallback ohne Preview
             no_preview_label = QLabel("Preview not available")
             no_preview_label.setAlignment(Qt.AlignCenter)
             splitter.addWidget(no_preview_label)
-            splitter.setSizes([600, 200])
+            splitter.setSizes([500, 300])
     
     def connect_signals(self):
         """Verbinde alle Signals für Live-Update"""

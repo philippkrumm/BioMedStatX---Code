@@ -746,10 +746,16 @@ class DataVisualizer:
             )
         
         # Apply hatches
-        if any(h for h in hatches):
+        if hatches and any(hatches.values() if isinstance(hatches, dict) else hatches):
             for i, patch in enumerate(bars.patches):
-                if i < len(hatches) and hatches[i]:
-                    patch.set_hatch(hatches[i])
+                if isinstance(hatches, dict):
+                    # hatches is a dictionary with group names as keys
+                    if i < len(groups) and groups[i] in hatches and hatches[groups[i]]:
+                        patch.set_hatch(hatches[groups[i]])
+                else:
+                    # hatches is a list with indices
+                    if i < len(hatches) and hatches[i]:
+                        patch.set_hatch(hatches[i])
         
         # Add data points
         if show_points:
@@ -946,11 +952,17 @@ class DataVisualizer:
         )
         
         # Apply hatches to violins
-        if any(h for h in hatches):
+        if hatches and any(hatches.values() if isinstance(hatches, dict) else hatches):
             # For violin plots, we need to access the collections (violin bodies)
             for i, collection in enumerate(ax.collections):
-                if i < len(hatches) and hatches[i] and hasattr(collection, 'set_hatch'):
-                    collection.set_hatch(hatches[i])
+                if isinstance(hatches, dict):
+                    # hatches is a dictionary with group names as keys
+                    if i < len(groups) and groups[i] in hatches and hatches[groups[i]] and hasattr(collection, 'set_hatch'):
+                        collection.set_hatch(hatches[groups[i]])
+                else:
+                    # hatches is a list with indices
+                    if i < len(hatches) and hatches[i] and hasattr(collection, 'set_hatch'):
+                        collection.set_hatch(hatches[i])
 
         if show_points:
             DataVisualizer._add_data_points(
@@ -1142,10 +1154,16 @@ class DataVisualizer:
         )
         
         # Apply hatches to boxes
-        if any(h for h in hatches):
+        if hatches and any(hatches.values() if isinstance(hatches, dict) else hatches):
             for i, patch in enumerate(ax.patches):
-                if i < len(hatches) and hatches[i]:
-                    patch.set_hatch(hatches[i])
+                if isinstance(hatches, dict):
+                    # hatches is a dictionary with group names as keys
+                    if i < len(groups) and groups[i] in hatches and hatches[groups[i]]:
+                        patch.set_hatch(hatches[groups[i]])
+                else:
+                    # hatches is a list with indices
+                    if i < len(hatches) and hatches[i]:
+                        patch.set_hatch(hatches[i])
         
         if show_error_bars:
             import numpy as np
@@ -2485,9 +2503,7 @@ class DataVisualizer:
             'show_significance_letters': config.get('show_significance_letters', True),
             'significance_height_offset': config.get('significance_height_offset', 0.05),
             'significance_font_size': config.get('significance_font_size', 12),
-            # Bracket-spezifische Parameter für die Preview
-            'comparison_font_size': config.get('bracket_font_size', 16),
-            'comparison_line_height': config.get('bracket_spacing', 0.1),
+            # Bracket-spezifische Parameter werden nur für Funktionen gesetzt, die sie brauchen
             'x_label': config.get('x_label', ''),
             'y_label': config.get('y_label', ''),
             'title': config.get('title', ''),
@@ -2510,7 +2526,10 @@ class DataVisualizer:
                 'capsize': 0 if error_style == 'line' else config.get('capsize', 0.05),
                 'bar_edge_color': bar_edge_color,
                 'bar_edge_width': bar_linewidth,
-                'error_style': error_style
+                'error_style': error_style,
+                # Bracket-spezifische Parameter nur für Bar-Plots
+                'comparison_font_size': config.get('bracket_font_size', 16),
+                'comparison_line_height': config.get('bracket_spacing', 0.1)
             })
             DataVisualizer.plot_bar(groups, samples, **bar_kwargs)
             
