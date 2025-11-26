@@ -1,0 +1,43 @@
+# BioMedStatX - Development Requirements
+# Includes all production dependencies plus development tools
+
+# ============================================================================
+# PRODUCTION REQUIREMENTS (include base requirements)
+# ============================================================================
+-r requirements_production.txt
+
+# ============================================================================
+# DEVELOPMENT & TESTING TOOLS
+# ============================================================================
+pytest==8.3.5
+pytest-cov==6.1.1
+coverage==7.8.0
+
+# ============================================================================
+# JUPYTER & INTERACTIVE DEVELOPMENT
+# ============================================================================
+ipython==8.15.0
+ipykernel==6.25.2
+jupyter_client==8.3.1
+jupyter_core==5.3.1
+notebook
+
+# ============================================================================
+# DEBUGGING & PROFILING
+# ============================================================================
+debugpy==1.6.7.post1
+
+# ============================================================================
+# CODE QUALITY & FORMATTING
+# ============================================================================
+# black
+# flake8
+# mypy
+
+# ============================================================================
+# OPTIONAL LARGE PACKAGES (for extended analysis)
+# ============================================================================
+# Uncomment if needed for advanced features:
+# scikit-learn==1.5.2      # Machine learning
+# xgboost==2.1.1           # Gradient boosting
+# xarray==2025.4.0         # Multi-dimensional arrays
